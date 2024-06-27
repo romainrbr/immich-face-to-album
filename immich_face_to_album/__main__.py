@@ -23,11 +23,11 @@ def request_api(method, url, headers, request_type, payload=None):
 def face_to_album(key, server, face, album):
     headers = {"Accept": "application/json", "x-api-key": key}
 
-    url = f"{server}/api/person/{face}/assets"
+    url = f"{server}/api/people/{face}/assets"
     face_data = request_api("GET", url, headers, "GetFaceAssets")
     face_assets = [item["id"] for item in face_data]
 
-    url = f"{server}/api/album/{album}"
+    url = f"{server}/api/albums/{album}"
     album_data = request_api("GET", url, headers, "GetAlbumAssets")
     album_assets = [item["id"] for item in album_data["assets"]]
 
@@ -37,7 +37,7 @@ def face_to_album(key, server, face, album):
         click.echo(click.style("No assets to add", fg="yellow"))
         return
 
-    url = f"{server}/api/album/{album}/assets"
+    url = f"{server}/api/albums/{album}/assets"
     payload = {"ids": assets_to_add}
     request_api("PUT", url, headers, "PutAssetsToAlbum", payload)
     click.echo(
