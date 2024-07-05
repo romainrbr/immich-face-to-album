@@ -1,6 +1,5 @@
 import requests
 import click
-import time
 import json
 
 
