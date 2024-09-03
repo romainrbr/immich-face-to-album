@@ -1,3 +1,5 @@
 immich_face_to_album.egg-info/
 build/
 dist/
+.aider*
+.vscode/
