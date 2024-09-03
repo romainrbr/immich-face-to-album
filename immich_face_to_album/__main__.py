@@ -35,10 +35,15 @@ def get_time_buckets(server_url, key, face_id, size="MONTH"):
         exit(1)
 
 
-def get_assets_for_time_bucket(server_url, key, face_id, time_bucket):
-    url = f"{server_url}/api/people/{face_id}/assets"
+def get_assets_for_time_bucket(server_url, key, face_id, time_bucket, size="MONTH"):
+    url = f"{server_url}/api/timeline/bucket"
     headers = {"x-api-key": key, "Accept": "application/json"}
-    params = {"timeBucket": time_bucket}
+    params = {
+        "isArchived": "false",
+        "personId": face_id,
+        "size": size,
+        "timeBucket": time_bucket
+    }
     response = requests.get(url, headers=headers, params=params)
     if response.status_code == 200:
         return response.json()
@@ -117,10 +122,9 @@ def face_to_album(key, server, face, album, timebucket):
     unique_asset_ids = set()
     for bucket in time_buckets:
         bucket_time = bucket.get("timeBucket")
-        bucket_assets = get_assets_for_time_bucket(server, key, face, bucket_time)
+        bucket_assets = get_assets_for_time_bucket(server, key, face, bucket_time, timebucket)
         for asset in bucket_assets:
-            if asset["id"] in face_asset_ids:
-                unique_asset_ids.add(asset["id"])
+            unique_asset_ids.add(asset["id"])
 
     click.echo(f"Total unique assets to add: {len(unique_asset_ids)}")
 
