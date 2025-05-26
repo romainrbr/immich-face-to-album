@@ -127,8 +127,7 @@ def face_to_album(key, server, face, album, timebucket, verbose):
         bucket_assets = get_assets_for_time_bucket(
             server, key, face, bucket_time, timebucket, verbose
         )
-        for asset in bucket_assets:
-            unique_asset_ids.add(asset["id"])
+        unique_asset_ids.update(bucket_assets["id"])
 
     click.echo(f"Total unique assets to add: {len(unique_asset_ids)}")
 

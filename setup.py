@@ -3,7 +3,7 @@ from distutils.core import setup
 setup(
     name="immich-face-to-album",
     packages=["immich_face_to_album"],
-    version="1.0.5",
+    version="1.0.6",
     license="WTFPL",
     description='Tool to import a user\'s face from Immich into an album, mimicking the Google Photos "auto-updating album" feature.',
     long_description="""
