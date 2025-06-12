@@ -110,7 +110,12 @@ def chunker(seq, size):
 @click.command()
 @click.option("--key", help="Your Immich API Key", required=True)
 @click.option("--server", help="Your Immich server URL", required=True)
-@click.option("--face", help="ID of the face you want to copy from", required=True)
+@click.option(
+    "--face",
+    help="ID of the face you want to copy from. Can be used multiple times.",
+    multiple=True,
+    required=True,
+)
 @click.option("--album", help="ID of the album you want to copy to", required=True)
 @click.option(
     "--timebucket", help="Time bucket size (e.g., MONTH, WEEK)", default="MONTH"
@@ -119,15 +124,20 @@ def chunker(seq, size):
 def face_to_album(key, server, face, album, timebucket, verbose):
     headers = {"Accept": "application/json", "x-api-key": key}
 
-    time_buckets = get_time_buckets(server, key, face, timebucket, verbose)
-
     unique_asset_ids = set()
-    for bucket in time_buckets:
-        bucket_time = bucket.get("timeBucket")
-        bucket_assets = get_assets_for_time_bucket(
-            server, key, face, bucket_time, timebucket, verbose
-        )
-        unique_asset_ids.update(bucket_assets["id"])
+
+    for face_id in face:
+        if verbose:
+            click.echo(f"Processing face ID: {face_id}")
+
+        time_buckets = get_time_buckets(server, key, face_id, timebucket, verbose)
+
+        for bucket in time_buckets:
+            bucket_time = bucket.get("timeBucket")
+            bucket_assets = get_assets_for_time_bucket(
+                server, key, face_id, bucket_time, timebucket, verbose
+            )
+            unique_asset_ids.update(bucket_assets["id"])
 
     click.echo(f"Total unique assets to add: {len(unique_asset_ids)}")
 
