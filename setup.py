@@ -3,7 +3,7 @@ from distutils.core import setup
 setup(
     name="immich-face-to-album",
     packages=["immich_face_to_album"],
-    version="1.0.6",
+    version="1.0.7",
     license="WTFPL",
     description='Tool to import a user\'s face from Immich into an album, mimicking the Google Photos "auto-updating album" feature.',
     long_description="""
@@ -31,7 +31,7 @@ immich-face-to-album --key xxxxx --server https://your-immich-instance.com --fac
 
 Make sure to specify the protocol and port in the server url. For example, if your server is running on port 8080, you should specify the url as `http://your-server-url:8080`.
 
-You can run the command multiple times to add different faces to the same album.
+You can repeat the `--face` multiple times to add multiple faces to the same album.
 
 
 ### On a schedule
