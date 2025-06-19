@@ -4,4 +4,4 @@ click==8.1.7
 idna==3.7
 requests==2.32.4
 setuptools==78.1.1
-urllib3==2.2.2
+urllib3==2.5.0
