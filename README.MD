@@ -1,5 +1,7 @@
 # Immich-Face-To-Album
 
+![PyPI - Version](https://img.shields.io/pypi/v/immich-face-to-album)
+
 The 'immich-face-to-album' tool is a CLI-based program that allows you to import a user's face from Immich into an album, in a way similar to the Google photos "auto-updating album" feature. 
 
 ## Installation
