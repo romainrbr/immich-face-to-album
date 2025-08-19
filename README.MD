@@ -145,7 +145,3 @@ immich-face-to-album ... --verbose
 ## Contributing
 
 Issues and pull requests are welcome.
-
-## License
-
-See `LICENCE.txt`.
