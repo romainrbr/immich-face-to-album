@@ -1,6 +1,7 @@
 import requests
 import click
 import json
+import time
 
 
 def get_time_buckets(server_url, key, face_id, size="MONTH", verbose=False):
@@ -121,38 +122,65 @@ def chunker(seq, size):
     "--timebucket", help="Time bucket size (e.g., MONTH, WEEK)", default="MONTH"
 )
 @click.option("--verbose", is_flag=True, help="Enable verbose output for debugging")
-def face_to_album(key, server, face, album, timebucket, verbose):
+@click.option(
+    "--run-every-seconds",
+    type=int,
+    default=0,
+    show_default=True,
+    help="Automatically rerun synchronization every N seconds (0 = run once).",
+)
+def face_to_album(key, server, face, album, timebucket, verbose, run_every_seconds):
     headers = {"Accept": "application/json", "x-api-key": key}
 
-    unique_asset_ids = set()
+    def run_once():
+        unique_asset_ids = set()
 
-    for face_id in face:
-        if verbose:
-            click.echo(f"Processing face ID: {face_id}")
+        for face_id in face:
+            if verbose:
+                click.echo(f"Processing face ID: {face_id}")
 
-        time_buckets = get_time_buckets(server, key, face_id, timebucket, verbose)
+            time_buckets = get_time_buckets(server, key, face_id, timebucket, verbose)
 
-        for bucket in time_buckets:
-            bucket_time = bucket.get("timeBucket")
-            bucket_assets = get_assets_for_time_bucket(
-                server, key, face_id, bucket_time, timebucket, verbose
-            )
-            unique_asset_ids.update(bucket_assets["id"])
+            for bucket in time_buckets:
+                bucket_time = bucket.get("timeBucket")
+                bucket_assets = get_assets_for_time_bucket(
+                    server, key, face_id, bucket_time, timebucket, verbose
+                )
+                unique_asset_ids.update(bucket_assets["id"])
 
-    click.echo(f"Total unique assets to add: {len(unique_asset_ids)}")
+        click.echo(f"Total unique assets to add: {len(unique_asset_ids)}")
 
-    asset_ids_list = list(unique_asset_ids)
+        asset_ids_list = list(unique_asset_ids)
 
-    for asset_chunk in chunker(asset_ids_list, 500):
-        if verbose:
-            click.echo(f"Adding chunk of {len(asset_chunk)} assets to album {album}")
-        success = add_assets_to_album(server, key, album, asset_chunk, verbose)
-        if success:
+        for asset_chunk in chunker(asset_ids_list, 500):
+            if verbose:
+                click.echo(
+                    f"Adding chunk of {len(asset_chunk)} assets to album {album}"
+                )
+            success = add_assets_to_album(server, key, album, asset_chunk, verbose)
+            if success:
+                click.echo(
+                    click.style(
+                        f"Added {len(asset_chunk)} asset(s) to the album", fg="green"
+                    )
+                )
+
+    if run_every_seconds and run_every_seconds > 0:
+        try:
+            while True:
+                run_once()
+                click.echo(
+                    f"Waiting {run_every_seconds} second(s) before next execution..."
+                )
+                time.sleep(run_every_seconds)
+        except KeyboardInterrupt:
             click.echo(
                 click.style(
-                    f"Added {len(asset_chunk)} asset(s) to the album", fg="green"
+                    "Stop requested (Ctrl+C). Ending repeated execution.", fg="yellow"
                 )
             )
+    else:
+        run_once()
 
 
 def main(args=None):
