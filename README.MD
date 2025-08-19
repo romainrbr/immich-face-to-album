@@ -1,7 +1,7 @@
 # Immich Face To Album
 
-![PyPI - Version](https://img.shields.io/pypi/v/immich-face-to-album)
-![Docker Image Version](https://img.shields.io/docker/v/rbrucker/immich-face-to-album)
+[![PyPI - Version](https://img.shields.io/pypi/v/immich-face-to-album)](https://pypi.org/project/immich-face-to-album/)
+[![Docker Image Version](https://img.shields.io/docker/v/rbrucker/immich-face-to-album)](https://hub.docker.com/r/rbrucker/immich-face-to-album)
 
 Sync all photos belonging to one or more detected faces into an existing Immich album (similar to Google Photos “live / auto-updating albums”).
 
