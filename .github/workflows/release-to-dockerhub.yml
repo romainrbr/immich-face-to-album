@@ -1,7 +1,7 @@
 name: ci
 
 on:
-  push:
+  release:
 
 jobs:
   docker:
@@ -24,4 +24,6 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: rbrucker/immich-face-to-album:latest
+          tags: |
+            rbrucker/immich-face-to-album:latest
+            rbrucker/immich-face-to-album:${{ github.ref_name }}
