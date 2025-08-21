@@ -117,6 +117,11 @@ def chunker(seq, size):
     multiple=True,
     required=True,
 )
+@click.option(
+    "--skip-face",
+    help="ID of a face to exclude (can be used multiple times).",
+    multiple=True,
+)
 @click.option("--album", help="ID of the album you want to copy to", required=True)
 @click.option(
     "--timebucket", help="Time bucket size (e.g., MONTH, WEEK)", default="MONTH"
@@ -129,12 +134,15 @@ def chunker(seq, size):
     show_default=True,
     help="Automatically rerun synchronization every N seconds (0 = run once).",
 )
-def face_to_album(key, server, face, album, timebucket, verbose, run_every_seconds):
+def face_to_album(
+    key, server, face, skip_face, album, timebucket, verbose, run_every_seconds
+):
     headers = {"Accept": "application/json", "x-api-key": key}
 
     def run_once():
         unique_asset_ids = set()
 
+        # Collect assets for included faces
         for face_id in face:
             if verbose:
                 click.echo(f"Processing face ID: {face_id}")
@@ -147,6 +155,26 @@ def face_to_album(key, server, face, album, timebucket, verbose, run_every_secon
                     server, key, face_id, bucket_time, timebucket, verbose
                 )
                 unique_asset_ids.update(bucket_assets["id"])
+
+        # Collect and exclude assets for skip faces
+        if skip_face:
+            skip_asset_ids = set()
+            for s_face in skip_face:
+                if verbose:
+                    click.echo(f"Collecting assets to skip for face ID: {s_face}")
+                time_buckets = get_time_buckets(
+                    server, key, s_face, timebucket, verbose
+                )
+                for bucket in time_buckets:
+                    bucket_time = bucket.get("timeBucket")
+                    bucket_assets = get_assets_for_time_bucket(
+                        server, key, s_face, bucket_time, timebucket, verbose
+                    )
+                    skip_asset_ids.update(bucket_assets["id"])
+            before = len(unique_asset_ids)
+            unique_asset_ids.difference_update(skip_asset_ids)
+            removed = before - len(unique_asset_ids)
+            click.echo(f"Excluded {removed} asset(s) belonging to skipped face(s)")
 
         click.echo(f"Total unique assets to add: {len(unique_asset_ids)}")
 

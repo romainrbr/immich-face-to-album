@@ -54,7 +54,8 @@ The album must already exist (the tool only adds assets; it does not create albu
 |--------|----------|---------|-------------|
 | `--key` | Yes | No | Immich API key |
 | `--server` | Yes | No | Immich base URL (with protocol) |
-| `--face` | Yes | Yes | One or more person (face) IDs |
+| `--face` | Yes | Yes | One or more person (face) IDs to include |
+| `--skip-face` | No | Yes | Person (face) IDs to exclude from the album (assets already existing in the album will not be removed however) |
 | `--album` | Yes | No | Target album ID |
 | `--timebucket` | No | No | Timeline bucket size (default: `MONTH`) |
 | `--run-every-seconds` | No | No | Loop every N seconds (0 = run once) |
@@ -63,6 +64,12 @@ The album must already exist (the tool only adds assets; it does not create albu
 Basic multi-face example:
 ```sh
 immich-face-to-album --key k --server https://s --face p1 --face p2 --album a123
+```
+
+Exclude a face (e.g. gather p1 + p2, but remove any asset that also belongs to p3):
+```sh
+immich-face-to-album --key k --server https://s \
+  --face p1 --face p2 --skip-face p3 --album a123
 ```
 
 ---
@@ -81,8 +88,6 @@ Two ways to keep an album updated:
    immich-face-to-album --key K --server S --face P --album A --run-every-seconds 300
    ```
    Good for containers or supervised services.
-
-
 
 Choose:
 - Use `--run-every-seconds` when you want immediate repeated scans without external tooling.
@@ -148,13 +153,12 @@ immich-face-to-album --key k --server https://s --face p --album a --run-every-s
 
 ## Verbose Mode
 
-Add `--verbose` to inspect bucket queries, asset retrieval, and album add operations. Useful for:
+Add `--verbose` to inspect bucket queries, asset retrieval, exclusions, and album add operations. Useful for:
 - Verifying connectivity
 - Seeing exact API responses
-- Diagnosing missing assets
+- Diagnosing missing or excluded assets
 
 ---
-
 
 ## Contributing
 
