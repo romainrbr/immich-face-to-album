@@ -55,15 +55,21 @@ The album must already exist (the tool only adds assets; it does not create albu
 | `--key` | Yes | No | Immich API key |
 | `--server` | Yes | No | Immich base URL (with protocol) |
 | `--face` | Yes | Yes | One or more person (face) IDs to include |
+| `--require-all-faces` | No | No | If set, only assets that include all specified faces will be added to the album. Otherwise, all assets where any face appears are included. |
 | `--skip-face` | No | Yes | Person (face) IDs to exclude from the album (assets already existing in the album will not be removed however) |
 | `--album` | Yes | No | Target album ID |
 | `--timebucket` | No | No | Timeline bucket size (default: `MONTH`) |
 | `--run-every-seconds` | No | No | Loop every N seconds (0 = run once) |
 | `--verbose` | No | No | Print detailed API calls |
 
-Basic multi-face example:
+Basic multi-face example (e.g. all photos of friends and family). This will include all assets with face p1 OR face p2:
 ```sh
 immich-face-to-album --key k --server https://s --face p1 --face p2 --album a123
+```
+
+Basic multi-face example including all faces (e.g. photos with your partner). This will include only assets that have both face p1 AND face p2:
+```sh
+immich-face-to-album --key k --server https://s --face p1 --face p2 --require-all-faces --album a123
 ```
 
 Exclude a face (e.g. gather p1 + p2, but remove any asset that also belongs to p3):
