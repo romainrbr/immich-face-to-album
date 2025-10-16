@@ -1,9 +1,9 @@
-from distutils.core import setup
+from setuptools import setup
 
 setup(
     name="immich-face-to-album",
     packages=["immich_face_to_album"],
-    version="1.0.9",
+    use_scm_version=True,
     license="WTFPL",
     description='Tool to import a user\'s face from Immich into an album, mimicking the Google Photos "auto-updating album" feature.',
     long_description="""
@@ -48,7 +48,6 @@ For example, to run the command every hour, you can add the following to your cr
     author="romainrbr",
     author_email="contact@romain.tech",
     url="https://github.com/romainrbr/immich-face-to-album",
-    download_url="https://github.com/romainrbr/immich-face-to-album/archive/v_01.tar.gz",
     keywords=["immich"],
     install_requires=["click", "requests"],
     classifiers=[
