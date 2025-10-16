@@ -3,7 +3,8 @@ from setuptools import setup
 setup(
     name="immich-face-to-album",
     packages=["immich_face_to_album"],
-    use_scm_version=True,
+    # Use setuptools-scm with a safe fallback so builds without a git repo still work
+    use_scm_version={"fallback_version": "0.0.0"},
     license="WTFPL",
     description='Tool to import a user\'s face from Immich into an album, mimicking the Google Photos "auto-updating album" feature.',
     long_description="""
