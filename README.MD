@@ -80,6 +80,29 @@ immich-face-to-album --key k --server https://s \
 
 ---
 
+## Face selection logic (Boolean)
+
+Let face IDs be f1, f2, … and skip-face IDs be s1, s2, …
+
+- Repeated --face (default): OR
+  - IncludeSet = (f1 OR f2 OR …)
+- Repeated --face with --require-all-faces: AND
+  - IncludeSet = (f1 AND f2 AND …)
+- Skip logic: applied after IncludeSet, as a NOT with OR inside
+  - FinalSet = IncludeSet AND NOT (s1 OR s2 OR …)
+
+Equivalent set operations:
+- Without --require-all-faces: Final = (Union of faces) minus (Union of skip-faces)
+- With --require-all-faces: Final = (Intersection of faces) minus (Union of skip-faces)
+
+Examples:
+- --face p1 --face p2           => (p1 OR p2)
+- --face p1 --face p2 --require-all-faces => (p1 AND p2)
+- --face p1 --face p2 --skip-face s1 => (p1 OR p2) AND NOT s1
+- --face p1 --face p2 --require-all-faces --skip-face s1 --skip-face s2 => (p1 AND p2) AND NOT (s1 OR s2)
+
+---
+
 ## Continuous Sync vs Cron
 
 Two ways to keep an album updated:
