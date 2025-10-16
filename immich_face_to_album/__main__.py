@@ -134,8 +134,9 @@ def chunker(seq, size):
     show_default=True,
     help="Automatically rerun synchronization every N seconds (0 = run once).",
 )
+@click.option("--require-all-faces", is_flag=True, help="If set, only assets that include all specified faces will be added to the album. Otherwise, assets from any face are included.")
 def face_to_album(
-    key, server, face, skip_face, album, timebucket, verbose, run_every_seconds
+    key, server, face, skip_face, album, timebucket, verbose, run_every_seconds, require_all_faces
 ):
     headers = {"Accept": "application/json", "x-api-key": key}
 
@@ -143,10 +144,12 @@ def face_to_album(
         unique_asset_ids = set()
 
         # Collect assets for included faces
+        faces_asset_ids = list()
         for face_id in face:
             if verbose:
                 click.echo(f"Processing face ID: {face_id}")
 
+            face_ids = set()
             time_buckets = get_time_buckets(server, key, face_id, timebucket, verbose)
 
             for bucket in time_buckets:
@@ -154,7 +157,15 @@ def face_to_album(
                 bucket_assets = get_assets_for_time_bucket(
                     server, key, face_id, bucket_time, timebucket, verbose
                 )
-                unique_asset_ids.update(bucket_assets["id"])
+                face_ids.update(bucket_assets["id"])
+
+            faces_asset_ids.append(face_ids)
+
+        if require_all_faces:
+            unique_asset_ids = set.intersection(*faces_asset_ids)
+        else: 
+            unique_asset_ids = set.union(*faces_asset_ids)
+
 
         # Collect and exclude assets for skip faces
         if skip_face:
