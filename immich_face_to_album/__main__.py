@@ -186,8 +186,9 @@ def chunker(seq, size):
     "--no-other-faces",
     is_flag=True,
     help=(
-        "Only include assets whose detected faces are exactly the specified faces "
-        "(no additional recognized faces)."
+        "Prevent assets that contain any recognized faces outside the specified set. "
+        "This does not by itself require that all specified faces are present; "
+        "Combine with --require-all-faces to enforce that every specified face must be present."
     ),
 )
 def face_to_album(
@@ -288,15 +289,18 @@ def face_to_album(
                         )
                     continue
 
-                # Enforce that all specified faces are present (even if user didn't pass --require-all-faces explicitly)
-                if not included_face_ids.issubset(people_ids):
-                    total_rejected_missing_faces += 1
-                    if verbose:
-                        missing = included_face_ids - people_ids
-                        click.echo(
-                            f"Asset {asset_id} rejected: missing required faces {missing}"
-                        )
-                    continue
+                # If --require-all-faces is set, enforce that all specified faces are present.
+                # When --no-other-faces is used without --require-all-faces, assets that contain
+                # a subset of the requested faces are allowed (only extra faces were already rejected above).
+                if require_all_faces:
+                    if not included_face_ids.issubset(people_ids):
+                        total_rejected_missing_faces += 1
+                        if verbose:
+                            missing = included_face_ids - people_ids
+                            click.echo(
+                                f"Asset {asset_id} rejected: missing required faces {missing}"
+                            )
+                        continue
 
                 filtered_asset_ids.add(asset_id)
 
