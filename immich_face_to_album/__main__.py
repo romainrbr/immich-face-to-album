@@ -8,16 +8,19 @@ def get_time_buckets(server_url, key, face_id, size="MONTH", verbose=False):
     url = f"{server_url}/api/timeline/buckets"
     headers = {"x-api-key": key, "Accept": "application/json"}
     params = {"personId": face_id, "size": size}
-
+ 
     if verbose:
         click.echo(f"Fetching time buckets from {url} with params: {params}")
-
+ 
     response = requests.get(url, headers=headers, params=params)
-
+ 
     if response.status_code == 200:
+        data = response.json()
+        # Avoid keeping full bucket objects in memory; we only need the timeBucket value.
+        trimmed = [{"timeBucket": b.get("timeBucket")} for b in data]
         if verbose:
-            click.echo(f"Time buckets fetched: {response.json()}")
-        return response.json()
+            click.echo(f"Time buckets fetched: {len(trimmed)} bucket(s)")
+        return trimmed
     else:
         click.echo(
             click.style(
@@ -39,18 +42,21 @@ def get_assets_for_time_bucket(
         "size": size,
         "timeBucket": time_bucket,
     }
-
+ 
     if verbose:
         click.echo(
             f"Fetching assets for time bucket {time_bucket} from {url} with params: {params}"
         )
-
+ 
     response = requests.get(url, headers=headers, params=params)
-
+ 
     if response.status_code == 200:
+        data = response.json()
+        # Only the 'id' list is required by the caller; return a trimmed structure.
+        ids = data.get("id", []) if isinstance(data, dict) else []
         if verbose:
-            click.echo(f"Assets fetched: {response.json()}")
-        return response.json()
+            click.echo(f"Assets fetched: {len(ids)} id(s)")
+        return {"id": ids}
     else:
         click.echo(
             click.style(
@@ -64,12 +70,14 @@ def get_assets_for_time_bucket(
 def get_asset(server_url, key, asset_id, verbose=False):
     """
     Fetch a single asset to inspect its people list.
+
+    For the purposes of this script we only need the `people` information to
+    decide whether an asset should be included/excluded. To minimize memory
+    usage when iterating many assets, always return a lightweight dict that
+    contains only the asset `id` and its `people` list.
     """
     url = f"{server_url}/api/assets/{asset_id}"
-    headers = {
-        "x-api-key": key,
-        "Accept": "application/json",
-    }
+    headers = {"x-api-key": key, "Accept": "application/json"}
 
     if verbose:
         click.echo(f"Fetching asset {asset_id} from {url}")
@@ -78,10 +86,13 @@ def get_asset(server_url, key, asset_id, verbose=False):
 
     if response.status_code == 200:
         asset = response.json()
+        lightweight = {"id": asset.get("id"), "people": asset.get("people", [])}
         if verbose:
-            # Don't spam the whole object, but show that we got it
-            click.echo(f"Fetched asset {asset_id}, has keys: {list(asset.keys())}")
-        return asset
+            # Show what we actually keep to avoid spamming huge objects
+            click.echo(
+                f"Fetched asset {asset_id}, returning trimmed keys: {list(lightweight.keys())}"
+            )
+        return lightweight
     else:
         click.echo(
             click.style(
@@ -100,35 +111,36 @@ def add_assets_to_album(server_url, key, album_id, asset_ids, verbose=False):
         "Accept": "application/json",
     }
     payload = json.dumps({"ids": asset_ids})
-
+ 
     if verbose:
         click.echo(f"Adding assets to album {album_id} with payload: {payload}")
-
+ 
     response = requests.put(url, headers=headers, data=payload)
-
+ 
     if response.status_code == 200:
         if verbose:
             click.echo(f"Assets added to album: {asset_ids}")
         return True
     else:
+        # Parse error JSON once and reuse it to avoid repeated parsing
+        error_response = None
+        try:
+            error_response = response.json()
+        except json.JSONDecodeError:
+            error_response = None
+ 
         if verbose:
             click.echo(
                 f"Error response: Status code: {response.status_code}, Response text: {response.text}"
             )
-            try:
-                error_response = response.json()
+            if error_response is not None:
                 click.echo(f"Full error JSON: {json.dumps(error_response, indent=2)}")
-            except json.JSONDecodeError:
-                click.echo(
-                    f"Failed to decode JSON response. Response text: {response.text}"
-                )
         else:
-            try:
-                error_response = response.json()
+            if error_response is not None:
                 click.echo(
                     f"Error adding assets to album: {error_response.get('error', 'Unknown error')}"
                 )
-            except json.JSONDecodeError:
+            else:
                 click.echo(
                     f"Failed to decode JSON response. Status code: {response.status_code}, Response text: {response.text}"
                 )
