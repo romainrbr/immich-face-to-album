@@ -56,6 +56,7 @@ The album must already exist (the tool only adds assets; it does not create albu
 | `--server` | Yes | No | Immich base URL (with protocol) |
 | `--face` | Yes | Yes | One or more person (face) IDs to include |
 | `--require-all-faces` | No | No | If set, only assets that include all specified faces will be added to the album. Otherwise, all assets where any face appears are included. |
+| `--no-other-faces` | No | No | Only include assets whose detected faces exactly match the specified faces (no additional recognized faces). |
 | `--skip-face` | No | Yes | Person (face) IDs to exclude from the album (assets already existing in the album will not be removed however) |
 | `--album` | Yes | No | Target album ID |
 | `--timebucket` | No | No | Timeline bucket size (default: `MONTH`) |
@@ -91,15 +92,18 @@ Let face IDs be f1, f2, … and skip-face IDs be s1, s2, …
 - Skip logic: applied after IncludeSet, as a NOT with OR inside
   - FinalSet = IncludeSet AND NOT (s1 OR s2 OR …)
 
+- Exclusive filtering `--no-other-faces`: enforces that the set of recognized people returned by Immich exactly equals the specified faces; assets with any additional recognized people are rejected.
+
 Equivalent set operations:
 - Without --require-all-faces: Final = (Union of faces) minus (Union of skip-faces)
-- With --require-all-faces: Final = (Intersection of faces) minus (Union of skip-faces)
+- With --require-all-faces: Final = (Union of faces) minus (Union of skip-faces) minus any other face
 
 Examples:
 - --face p1 --face p2           => (p1 OR p2)
 - --face p1 --face p2 --require-all-faces => (p1 AND p2)
 - --face p1 --face p2 --skip-face s1 => (p1 OR p2) AND NOT s1
 - --face p1 --face p2 --require-all-faces --skip-face s1 --skip-face s2 => (p1 AND p2) AND NOT (s1 OR s2)
+- --face p1 --face p2 --no-other-faces => only assets where recognized people are exactly {p1 OR p2}
 
 ---
 
