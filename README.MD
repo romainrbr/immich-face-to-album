@@ -92,7 +92,7 @@ Let face IDs be f1, f2, … and skip-face IDs be s1, s2, …
 - Skip logic: applied after IncludeSet, as a NOT with OR inside
   - FinalSet = IncludeSet AND NOT (s1 OR s2 OR …)
 
-- Exclusive filtering `--no-other-faces`: enforces that the set of recognized people returned by Immich exactly equals the specified faces; assets with any additional recognized people are rejected.
+- Exclusive filtering `--no-other-faces`: enforces that the set of recognized people returned by Immich exactly equals the specified faces; assets with any additional recognized people are rejected. It's eqivalent to `--skip-face` *.
 
 Equivalent set operations:
 - Without --require-all-faces: Final = (Union of faces) minus (Union of skip-faces)
@@ -103,7 +103,7 @@ Examples:
 - --face p1 --face p2 --require-all-faces => (p1 AND p2)
 - --face p1 --face p2 --skip-face s1 => (p1 OR p2) AND NOT s1
 - --face p1 --face p2 --require-all-faces --skip-face s1 --skip-face s2 => (p1 AND p2) AND NOT (s1 OR s2)
-- --face p1 --face p2 --no-other-faces => only assets where recognized people are exactly {p1 OR p2}
+- --face p1 --face p2 --no-other-faces => only assets where recognized people are present (p1 OR p2) AND NOT {any other face}
 
 ---
 
