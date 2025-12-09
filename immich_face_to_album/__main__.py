@@ -61,6 +61,37 @@ def get_assets_for_time_bucket(
         exit(1)
 
 
+def get_asset(server_url, key, asset_id, verbose=False):
+    """
+    Fetch a single asset to inspect its people list.
+    """
+    url = f"{server_url}/api/assets/{asset_id}"
+    headers = {
+        "x-api-key": key,
+        "Accept": "application/json",
+    }
+
+    if verbose:
+        click.echo(f"Fetching asset {asset_id} from {url}")
+
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        asset = response.json()
+        if verbose:
+            # Don't spam the whole object, but show that we got it
+            click.echo(f"Fetched asset {asset_id}, has keys: {list(asset.keys())}")
+        return asset
+    else:
+        click.echo(
+            click.style(
+                f"Failed to fetch asset {asset_id}. Status code: {response.status_code}, Response text: {response.text}",
+                fg="red",
+            )
+        )
+        return None
+
+
 def add_assets_to_album(server_url, key, album_id, asset_ids, verbose=False):
     url = f"{server_url}/api/albums/{album_id}/assets"
     headers = {
@@ -134,17 +165,46 @@ def chunker(seq, size):
     show_default=True,
     help="Automatically rerun synchronization every N seconds (0 = run once).",
 )
-@click.option("--require-all-faces", is_flag=True, help="If set, only assets that include all specified faces will be added to the album. Otherwise, assets from any face are included.")
+@click.option(
+    "--require-all-faces",
+    is_flag=True,
+    help="If set, only assets that include all specified faces will be added to the album. Otherwise, assets from any face are included.",
+)
+@click.option(
+    "--no-other-faces",
+    is_flag=True,
+    help=(
+        "Only include assets whose detected faces are exactly the specified faces "
+        "(no additional recognized faces)."
+    ),
+)
 def face_to_album(
-    key, server, face, skip_face, album, timebucket, verbose, run_every_seconds, require_all_faces
+    key,
+    server,
+    face,
+    skip_face,
+    album,
+    timebucket,
+    verbose,
+    run_every_seconds,
+    require_all_faces,
+    no_other_faces,
 ):
     headers = {"Accept": "application/json", "x-api-key": key}
 
     def run_once():
-        unique_asset_ids = set()
+        # faces the user asked to include (normalize IDs to strings for robust comparisons)
+        included_face_ids = {str(f) for f in face}
 
-        # Collect assets for included faces
-        faces_asset_ids = list()
+        if verbose:
+            click.echo(f"Included faces: {included_face_ids}")
+            if no_other_faces:
+                click.echo(
+                    "--no-other-faces is enabled; assets will be restricted to exactly these faces."
+                )
+
+        # Collect assets per included face
+        faces_asset_ids = []
         for face_id in face:
             if verbose:
                 click.echo(f"Processing face ID: {face_id}")
@@ -157,15 +217,84 @@ def face_to_album(
                 bucket_assets = get_assets_for_time_bucket(
                     server, key, face_id, bucket_time, timebucket, verbose
                 )
-                face_ids.update(bucket_assets["id"])
+                # bucket_assets["id"] is a list of asset IDs; normalize to strings
+                face_ids.update({str(a) for a in bucket_assets.get("id", [])})
+
+            if verbose:
+                click.echo(
+                    f"Found {len(face_ids)} asset(s) for face {face_id} across all buckets"
+                )
 
             faces_asset_ids.append(face_ids)
 
+        # Determine initial candidate assets:
+        # - require_all_faces => intersection
+        # - otherwise => union (any face)
         if require_all_faces:
-            unique_asset_ids = set.intersection(*faces_asset_ids)
-        else: 
-            unique_asset_ids = set.union(*faces_asset_ids)
+            if faces_asset_ids:
+                unique_asset_ids = set.intersection(*faces_asset_ids)
+            else:
+                unique_asset_ids = set()
+        else:
+            unique_asset_ids = set.union(*faces_asset_ids) if faces_asset_ids else set()
 
+        if verbose:
+            mode = (
+                "AND (all faces)"
+                if require_all_faces
+                else "OR (any face)"
+            )
+            click.echo(
+                f"Initial candidate assets after {mode} combination: {len(unique_asset_ids)}"
+            )
+
+        # Enforce "no other faces": assets must contain exactly the specified faces
+        # (based on recognized people from Immich).
+        if no_other_faces and unique_asset_ids:
+            filtered_asset_ids = set()
+            total_checked = 0
+            total_rejected_extra_faces = 0
+            total_rejected_missing_faces = 0
+
+            for asset_id in unique_asset_ids:
+                total_checked += 1
+                asset = get_asset(server, key, asset_id, verbose=verbose)
+                if not asset:
+                    # Failed to fetch; skip this asset
+                    continue
+
+                people = asset.get("people", []) or []
+                # Normalize people IDs to strings to avoid int/str mismatches from the API
+                people_ids = {str(p.get("id")) for p in people if p.get("id") is not None}
+
+                # Reject if any recognized face is not in the allowed set
+                if not people_ids.issubset(included_face_ids):
+                    total_rejected_extra_faces += 1
+                    if verbose:
+                        click.echo(
+                            f"Asset {asset_id} rejected: has extra faces {people_ids - included_face_ids}"
+                        )
+                    continue
+
+                # Enforce that all specified faces are present (even if user didn't pass --require-all-faces explicitly)
+                if not included_face_ids.issubset(people_ids):
+                    total_rejected_missing_faces += 1
+                    if verbose:
+                        missing = included_face_ids - people_ids
+                        click.echo(
+                            f"Asset {asset_id} rejected: missing required faces {missing}"
+                        )
+                    continue
+
+                filtered_asset_ids.add(asset_id)
+
+            unique_asset_ids = filtered_asset_ids
+
+            click.echo(
+                f"After enforcing --no-other-faces: {len(unique_asset_ids)} asset(s) remain "
+                f"(checked {total_checked}, rejected extra-faces={total_rejected_extra_faces}, "
+                f"rejected missing-faces={total_rejected_missing_faces})"
+            )
 
         # Collect and exclude assets for skip faces
         if skip_face:
@@ -181,7 +310,9 @@ def face_to_album(
                     bucket_assets = get_assets_for_time_bucket(
                         server, key, s_face, bucket_time, timebucket, verbose
                     )
-                    skip_asset_ids.update(bucket_assets["id"])
+                    # Normalize skip asset IDs to strings
+                    skip_asset_ids.update({str(a) for a in bucket_assets.get("id", [])})
+
             before = len(unique_asset_ids)
             unique_asset_ids.difference_update(skip_asset_ids)
             removed = before - len(unique_asset_ids)
