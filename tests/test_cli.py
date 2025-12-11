@@ -640,3 +640,354 @@ class TestErrorHandling:
         assert result.exit_code == 0  # CLI doesn't exit on album update failure
         assert "Total unique assets to add: 1" in result.output
         assert "Permission denied" in result.output
+
+
+class TestNoOtherFaces:
+    """Test the --no-other-faces flag."""
+
+    def test_no_other_faces_filters_extra_faces(self, runner, mock_api):
+        """Test that --no-other-faces filters out assets with extra faces."""
+        # Mock time buckets
+        mock_api.get(
+            "https://example.com/api/timeline/buckets?personId=face-1&size=MONTH",
+            json=[{"timeBucket": "2024-01"}],
+            status_code=200,
+        )
+
+        # Mock assets - 3 assets found for face-1
+        mock_api.get(
+            "https://example.com/api/timeline/bucket?isArchived=false&personId=face-1&size=MONTH&timeBucket=2024-01",
+            json={"id": ["asset-1", "asset-2", "asset-3"]},
+            status_code=200,
+        )
+
+        # Mock individual asset fetches
+        # asset-1: only has face-1 (should be included)
+        mock_api.get(
+            "https://example.com/api/assets/asset-1",
+            json={
+                "id": "asset-1",
+                "people": [{"id": "face-1"}],
+            },
+            status_code=200,
+        )
+
+        # asset-2: has face-1 AND face-2 (should be rejected - extra face)
+        mock_api.get(
+            "https://example.com/api/assets/asset-2",
+            json={
+                "id": "asset-2",
+                "people": [{"id": "face-1"}, {"id": "face-2"}],
+            },
+            status_code=200,
+        )
+
+        # asset-3: only has face-1 (should be included)
+        mock_api.get(
+            "https://example.com/api/assets/asset-3",
+            json={
+                "id": "asset-3",
+                "people": [{"id": "face-1"}],
+            },
+            status_code=200,
+        )
+
+        # Mock album update
+        mock_api.put(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        result = runner.invoke(
+            face_to_album,
+            [
+                "--key",
+                "test-key",
+                "--server",
+                "https://example.com",
+                "--face",
+                "face-1",
+                "--album",
+                "album-123",
+                "--no-other-faces",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "After enforcing --no-other-faces: 2 asset(s) remain" in result.output
+        assert "rejected extra-faces=1" in result.output
+        assert "Total unique assets to add: 2" in result.output
+
+    def test_no_other_faces_with_no_people(self, runner, mock_api):
+        """Test --no-other-faces when asset has no recognized people."""
+        mock_api.get(
+            "https://example.com/api/timeline/buckets?personId=face-1&size=MONTH",
+            json=[{"timeBucket": "2024-01"}],
+            status_code=200,
+        )
+
+        mock_api.get(
+            "https://example.com/api/timeline/bucket?isArchived=false&personId=face-1&size=MONTH&timeBucket=2024-01",
+            json={"id": ["asset-1"]},
+            status_code=200,
+        )
+
+        # Asset has no people (empty list)
+        mock_api.get(
+            "https://example.com/api/assets/asset-1",
+            json={
+                "id": "asset-1",
+                "people": [],
+            },
+            status_code=200,
+        )
+
+        mock_api.put(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        result = runner.invoke(
+            face_to_album,
+            [
+                "--key",
+                "test-key",
+                "--server",
+                "https://example.com",
+                "--face",
+                "face-1",
+                "--album",
+                "album-123",
+                "--no-other-faces",
+            ],
+        )
+
+        assert result.exit_code == 0
+        # Asset with no people has empty people set, which is subset of any set
+        assert "After enforcing --no-other-faces: 1 asset(s) remain" in result.output
+
+    def test_no_other_faces_multiple_allowed(self, runner, mock_api):
+        """Test --no-other-faces with multiple allowed faces (OR mode)."""
+        # Mock time buckets for face-1
+        mock_api.get(
+            "https://example.com/api/timeline/buckets?personId=face-1&size=MONTH",
+            json=[{"timeBucket": "2024-01"}],
+            status_code=200,
+        )
+
+        # Mock assets for face-1
+        mock_api.get(
+            "https://example.com/api/timeline/bucket?isArchived=false&personId=face-1&size=MONTH&timeBucket=2024-01",
+            json={"id": ["asset-1", "asset-2"]},
+            status_code=200,
+        )
+
+        # Mock time buckets for face-2
+        mock_api.get(
+            "https://example.com/api/timeline/buckets?personId=face-2&size=MONTH",
+            json=[{"timeBucket": "2024-01"}],
+            status_code=200,
+        )
+
+        # Mock assets for face-2
+        mock_api.get(
+            "https://example.com/api/timeline/bucket?isArchived=false&personId=face-2&size=MONTH&timeBucket=2024-01",
+            json={"id": ["asset-2", "asset-3"]},
+            status_code=200,
+        )
+
+        # asset-1: only has face-1 (allowed)
+        mock_api.get(
+            "https://example.com/api/assets/asset-1",
+            json={"id": "asset-1", "people": [{"id": "face-1"}]},
+            status_code=200,
+        )
+
+        # asset-2: has face-1 AND face-2 (allowed - both are in the specified set)
+        mock_api.get(
+            "https://example.com/api/assets/asset-2",
+            json={"id": "asset-2", "people": [{"id": "face-1"}, {"id": "face-2"}]},
+            status_code=200,
+        )
+
+        # asset-3: has face-2 AND face-3 (rejected - face-3 is extra)
+        mock_api.get(
+            "https://example.com/api/assets/asset-3",
+            json={"id": "asset-3", "people": [{"id": "face-2"}, {"id": "face-3"}]},
+            status_code=200,
+        )
+
+        mock_api.put(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        result = runner.invoke(
+            face_to_album,
+            [
+                "--key",
+                "test-key",
+                "--server",
+                "https://example.com",
+                "--face",
+                "face-1",
+                "--face",
+                "face-2",
+                "--album",
+                "album-123",
+                "--no-other-faces",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "After enforcing --no-other-faces: 2 asset(s) remain" in result.output
+        assert "rejected extra-faces=1" in result.output
+
+    def test_no_other_faces_with_require_all_faces(self, runner, mock_api):
+        """Test --no-other-faces combined with --require-all-faces (AND mode)."""
+        # Mock time buckets for both faces
+        mock_api.get(
+            "https://example.com/api/timeline/buckets?personId=face-1&size=MONTH",
+            json=[{"timeBucket": "2024-01"}],
+            status_code=200,
+        )
+
+        mock_api.get(
+            "https://example.com/api/timeline/bucket?isArchived=false&personId=face-1&size=MONTH&timeBucket=2024-01",
+            json={"id": ["asset-1", "asset-2", "asset-3", "asset-4"]},
+            status_code=200,
+        )
+
+        mock_api.get(
+            "https://example.com/api/timeline/buckets?personId=face-2&size=MONTH",
+            json=[{"timeBucket": "2024-01"}],
+            status_code=200,
+        )
+
+        mock_api.get(
+            "https://example.com/api/timeline/bucket?isArchived=false&personId=face-2&size=MONTH&timeBucket=2024-01",
+            json={"id": ["asset-2", "asset-3", "asset-4"]},
+            status_code=200,
+        )
+
+        # asset-1: only face-1 (rejected - missing face-2)
+        mock_api.get(
+            "https://example.com/api/assets/asset-1",
+            json={"id": "asset-1", "people": [{"id": "face-1"}]},
+            status_code=200,
+        )
+
+        # asset-2: face-1 AND face-2 (perfect match - included)
+        mock_api.get(
+            "https://example.com/api/assets/asset-2",
+            json={"id": "asset-2", "people": [{"id": "face-1"}, {"id": "face-2"}]},
+            status_code=200,
+        )
+
+        # asset-3: face-1, face-2, AND face-3 (rejected - has extra face)
+        mock_api.get(
+            "https://example.com/api/assets/asset-3",
+            json={
+                "id": "asset-3",
+                "people": [{"id": "face-1"}, {"id": "face-2"}, {"id": "face-3"}],
+            },
+            status_code=200,
+        )
+
+        # asset-4: only face-2 (rejected - missing face-1)
+        mock_api.get(
+            "https://example.com/api/assets/asset-4",
+            json={"id": "asset-4", "people": [{"id": "face-2"}]},
+            status_code=200,
+        )
+
+        mock_api.put(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        result = runner.invoke(
+            face_to_album,
+            [
+                "--key",
+                "test-key",
+                "--server",
+                "https://example.com",
+                "--face",
+                "face-1",
+                "--face",
+                "face-2",
+                "--album",
+                "album-123",
+                "--require-all-faces",
+                "--no-other-faces",
+            ],
+        )
+
+        assert result.exit_code == 0
+        # Only asset-2 should remain (has exactly face-1 and face-2, no more, no less)
+        # Note: asset-1 is already filtered by --require-all-faces intersection,
+        # so only 3 assets are checked: asset-2, asset-3, asset-4
+        assert "After enforcing --no-other-faces: 1 asset(s) remain" in result.output
+        assert "checked 3" in result.output
+        assert "rejected extra-faces=1" in result.output
+        assert "rejected missing-faces=1" in result.output
+        assert "Total unique assets to add: 1" in result.output
+
+    def test_no_other_faces_asset_fetch_failure(self, runner, mock_api):
+        """Test --no-other-faces when asset fetch fails."""
+        mock_api.get(
+            "https://example.com/api/timeline/buckets?personId=face-1&size=MONTH",
+            json=[{"timeBucket": "2024-01"}],
+            status_code=200,
+        )
+
+        mock_api.get(
+            "https://example.com/api/timeline/bucket?isArchived=false&personId=face-1&size=MONTH&timeBucket=2024-01",
+            json={"id": ["asset-1", "asset-2"]},
+            status_code=200,
+        )
+
+        # asset-1: fetch succeeds
+        mock_api.get(
+            "https://example.com/api/assets/asset-1",
+            json={"id": "asset-1", "people": [{"id": "face-1"}]},
+            status_code=200,
+        )
+
+        # asset-2: fetch fails
+        mock_api.get(
+            "https://example.com/api/assets/asset-2",
+            text="Not Found",
+            status_code=404,
+        )
+
+        mock_api.put(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        result = runner.invoke(
+            face_to_album,
+            [
+                "--key",
+                "test-key",
+                "--server",
+                "https://example.com",
+                "--face",
+                "face-1",
+                "--album",
+                "album-123",
+                "--no-other-faces",
+            ],
+        )
+
+        assert result.exit_code == 0
+        # asset-2 should be skipped due to fetch failure
+        assert "After enforcing --no-other-faces: 1 asset(s) remain" in result.output
+        assert "Failed to fetch asset asset-2" in result.output

@@ -5,6 +5,7 @@ from immich_face_to_album.__main__ import (
     get_time_buckets,
     get_assets_for_time_bucket,
     add_assets_to_album,
+    get_asset,
 )
 
 
@@ -295,3 +296,110 @@ class TestAddAssetsToAlbum:
             assert "Error response:" in captured.out
             assert "Full error JSON:" in captured.out
             assert "Permission denied" in captured.out
+
+
+class TestGetAsset:
+    """Test the get_asset function."""
+
+    def test_get_asset_success(self):
+        """Test successful asset fetching with people information."""
+        with requests_mock.Mocker() as m:
+            full_asset_response = {
+                "id": "asset-123",
+                "people": [
+                    {"id": "face-1", "name": "Person 1"},
+                    {"id": "face-2", "name": "Person 2"},
+                ],
+                "fileCreatedAt": "2024-01-01T00:00:00.000Z",
+                "deviceAssetId": "some-device-id",
+                # ... many other fields that should be trimmed
+            }
+            m.get(
+                "https://example.com/api/assets/asset-123",
+                json=full_asset_response,
+                status_code=200,
+            )
+
+            result = get_asset("https://example.com", "test-key", "asset-123", False)
+
+            assert result is not None
+            assert result["id"] == "asset-123"
+            assert len(result["people"]) == 2
+            assert result["people"][0]["id"] == "face-1"
+            assert result["people"][1]["id"] == "face-2"
+            # Verify only id and people are returned (trimmed response)
+            assert set(result.keys()) == {"id", "people"}
+
+    def test_get_asset_no_people(self):
+        """Test asset fetching when asset has no recognized people."""
+        with requests_mock.Mocker() as m:
+            asset_response = {
+                "id": "asset-456",
+                "people": [],
+                "fileCreatedAt": "2024-01-01T00:00:00.000Z",
+            }
+            m.get(
+                "https://example.com/api/assets/asset-456",
+                json=asset_response,
+                status_code=200,
+            )
+
+            result = get_asset("https://example.com", "test-key", "asset-456", False)
+
+            assert result is not None
+            assert result["id"] == "asset-456"
+            assert result["people"] == []
+
+    def test_get_asset_missing_people_field(self):
+        """Test asset fetching when people field is missing."""
+        with requests_mock.Mocker() as m:
+            asset_response = {
+                "id": "asset-789",
+                "fileCreatedAt": "2024-01-01T00:00:00.000Z",
+            }
+            m.get(
+                "https://example.com/api/assets/asset-789",
+                json=asset_response,
+                status_code=200,
+            )
+
+            result = get_asset("https://example.com", "test-key", "asset-789", False)
+
+            assert result is not None
+            assert result["id"] == "asset-789"
+            assert result["people"] == []
+
+    def test_get_asset_failure(self, capsys):
+        """Test asset fetching with API error."""
+        with requests_mock.Mocker() as m:
+            m.get(
+                "https://example.com/api/assets/asset-404",
+                text="Not Found",
+                status_code=404,
+            )
+
+            result = get_asset("https://example.com", "test-key", "asset-404", False)
+
+            assert result is None
+            captured = capsys.readouterr()
+            assert "Failed to fetch asset asset-404" in captured.out
+
+    def test_get_asset_verbose(self, capsys):
+        """Test verbose output for asset fetching."""
+        with requests_mock.Mocker() as m:
+            asset_response = {
+                "id": "asset-999",
+                "people": [{"id": "face-1"}],
+            }
+            m.get(
+                "https://example.com/api/assets/asset-999",
+                json=asset_response,
+                status_code=200,
+            )
+
+            result = get_asset("https://example.com", "test-key", "asset-999", True)
+
+            assert result is not None
+            captured = capsys.readouterr()
+            assert "Fetching asset asset-999" in captured.out
+            assert "Fetched asset asset-999, returning trimmed keys" in captured.out
