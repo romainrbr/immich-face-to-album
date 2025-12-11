@@ -51,6 +51,14 @@ For example, to run the command every hour, you can add the following to your cr
     url="https://github.com/romainrbr/immich-face-to-album",
     keywords=["immich"],
     install_requires=["click", "requests"],
+    extras_require={
+        "test": [
+            "pytest>=7.0.0",
+            "pytest-cov>=4.0.0",
+            "pytest-mock>=3.10.0",
+            "requests-mock>=1.9.0",
+        ]
+    },
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
