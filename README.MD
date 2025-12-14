@@ -49,7 +49,7 @@ The album must already exist (the tool only adds assets; it does not create albu
 ---
 
 ## Command Options (summary)
-
+ 
 | Option | Required | Repeats | Description |
 |--------|----------|---------|-------------|
 | `--key` | Yes | No | Immich API key |
@@ -57,11 +57,12 @@ The album must already exist (the tool only adds assets; it does not create albu
 | `--face` | Yes | Yes | One or more person (face) IDs to include |
 | `--require-all-faces` | No | No | If set, only assets that include all specified faces will be added to the album. Otherwise, all assets where any face appears are included. |
 | `--no-other-faces` | No | No | Only include assets whose detected faces exactly match the specified faces (no additional recognized faces). |
-| `--skip-face` | No | Yes | Person (face) IDs to exclude from the album (assets already existing in the album will not be removed however) |
+| `--skip-face` | No | Yes | Person (face) IDs to exclude from the selection. Use `--remove-non-matching` to retroactively remove matching assets already present in the album. |
 | `--album` | Yes | No | Target album ID |
 | `--timebucket` | No | No | Timeline bucket size (default: `MONTH`) |
 | `--run-every-seconds` | No | No | Loop every N seconds (0 = run once) |
 | `--verbose` | No | No | Print detailed API calls |
+| `--remove-non-matching` | No | No | Remove assets from the album that do not satisfy the final face-selection logic (applies removals to assets already in the album). |
 
 Basic multi-face example (e.g. all photos of friends and family). This will include all assets with face p1 OR face p2:
 ```sh
@@ -185,11 +186,12 @@ immich-face-to-album --key k --server https://s --face p --album a --run-every-s
 ---
 
 ## Verbose Mode
-
-Add `--verbose` to inspect bucket queries, asset retrieval, exclusions, and album add operations. Useful for:
+ 
+Add `--verbose` to inspect bucket queries, asset retrieval, exclusions, album add operations, and removal operations when used with `--remove-non-matching`. Useful for:
 - Verifying connectivity
 - Seeing exact API responses
 - Diagnosing missing or excluded assets
+- Observing assets that will be removed when `--remove-non-matching` is enabled
 
 ---
 

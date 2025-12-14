@@ -103,6 +103,74 @@ def get_asset(server_url, key, asset_id, verbose=False):
         return None
 
 
+def get_album_assets(server_url, key, album_id, verbose=False):
+   """
+   Fetch all assets currently present in the album.
+   Returns a set of asset IDs (as strings).
+   """
+   url = f"{server_url}/api/albums/{album_id}"
+   headers = {"x-api-key": key, "Accept": "application/json"}
+
+   if verbose:
+       click.echo(f"Fetching album info from {url}")
+
+   response = requests.get(url, headers=headers)
+
+   if response.status_code != 200:
+       click.echo(
+           click.style(
+               f"Failed to fetch album info. Status code: {response.status_code}, Response text: {response.text}",
+               fg="red",
+           )
+       )
+       return set()
+
+   album_data = response.json()
+   asset_objs = album_data.get("assets", []) or []
+   asset_ids = {str(a.get("id")) for a in asset_objs if a.get("id")}
+
+   if verbose:
+       click.echo(f"Album currently contains {len(asset_ids)} asset(s)")
+
+   return asset_ids
+
+
+def remove_assets_from_album(server_url, key, album_id, asset_ids, verbose=False):
+   """
+   Remove asset IDs from an album using Immich's DELETE endpoint.
+   Supports batch removal with JSON body: {"ids": [...] }.
+   """
+   url = f"{server_url}/api/albums/{album_id}/assets"
+   headers = {
+       "x-api-key": key,
+       "Content-Type": "application/json",
+       "Accept": "application/json",
+   }
+
+   # Delete in chunks of 500
+   for chunk in chunker(list(asset_ids), 500):
+       payload = json.dumps({"ids": list(chunk)})
+
+       if verbose:
+           click.echo(f"Removing {len(chunk)} asset(s) from album {album_id}: {payload}")
+
+       response = requests.delete(url, headers=headers, data=payload)
+
+       if response.status_code != 200:
+           click.echo(
+               click.style(
+                   f"Failed to remove assets from album. Status code: {response.status_code}, Response text: {response.text}",
+                   fg="red",
+               )
+           )
+           return False
+
+       if verbose:
+           click.echo(f"Successfully removed {len(chunk)} asset(s)")
+
+   return True
+
+
 def add_assets_to_album(server_url, key, album_id, asset_ids, verbose=False):
     url = f"{server_url}/api/albums/{album_id}/assets"
     headers = {
@@ -191,6 +259,11 @@ def chunker(seq, size):
         "Combine with --require-all-faces to enforce that every specified face must be present."
     ),
 )
+@click.option(
+    "--remove-non-matching",
+    is_flag=True,
+    help="Remove assets from the album that do not satisfy the face-selection logic.",
+)
 def face_to_album(
     key,
     server,
@@ -202,6 +275,7 @@ def face_to_album(
     run_every_seconds,
     require_all_faces,
     no_other_faces,
+    remove_non_matching,
 ):
     headers = {"Accept": "application/json", "x-api-key": key}
 
@@ -351,6 +425,35 @@ def face_to_album(
                     )
                 )
 
+        # Removal logic: remove assets not matching final criteria
+        if remove_non_matching:
+            if verbose:
+                click.echo("Fetching current album asset list for removal check...")
+
+            current_assets = get_album_assets(server, key, album, verbose)
+            desired_assets = set(unique_asset_ids)
+
+            assets_to_remove = current_assets - desired_assets
+
+            click.echo(f"Total assets to remove: {len(assets_to_remove)}")
+            if verbose and assets_to_remove:
+                click.echo(f"Assets to remove: {sorted(list(assets_to_remove))}")
+
+            if assets_to_remove:
+                remove_success = remove_assets_from_album(
+                    server, key, album, list(assets_to_remove), verbose
+                )
+                if remove_success:
+                    click.echo(
+                        click.style(
+                            f"Removed {len(assets_to_remove)} non-matching asset(s) from album",
+                            fg="yellow",
+                        )
+                    )
+            else:
+                if verbose:
+                    click.echo("No non-matching assets need removal.")
+
     if run_every_seconds and run_every_seconds > 0:
         try:
             while True:
@@ -370,8 +473,8 @@ def face_to_album(
 
 
 def main(args=None):
-    face_to_album()
+    face_to_album()  # type: ignore[misc]
 
 
 if __name__ == "__main__":
-    face_to_album()
+    face_to_album()  # type: ignore[misc]
