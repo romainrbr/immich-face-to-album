@@ -6,6 +6,8 @@ from immich_face_to_album.__main__ import (
     get_assets_for_time_bucket,
     add_assets_to_album,
     get_asset,
+    get_album_assets,
+    remove_assets_from_album,
 )
 
 
@@ -403,3 +405,49 @@ class TestGetAsset:
             captured = capsys.readouterr()
             assert "Fetching asset asset-999" in captured.out
             assert "Fetched asset asset-999, returning trimmed keys" in captured.out
+
+
+class TestAlbumFunctions:
+    """Test album-related API functions (list and remove)."""
+
+    def test_get_album_assets_success(self):
+        """Test fetching album assets succeeds and returns IDs as strings."""
+        with requests_mock.Mocker() as m:
+            album_payload = {
+                "id": "album-123",
+                "assets": [{"id": "asset-1"}, {"id": "asset-3"}],
+            }
+            m.get(
+                "https://example.com/api/albums/album-123",
+                json=album_payload,
+                status_code=200,
+            )
+
+            result = get_album_assets(
+                "https://example.com", "test-key", "album-123", False
+            )
+
+            assert isinstance(result, set)
+            assert result == {"asset-1", "asset-3"}
+            assert m.last_request.headers["x-api-key"] == "test-key"
+
+    def test_remove_assets_from_album_success(self, capsys):
+        """Test removal of assets from an album using the DELETE endpoint."""
+        with requests_mock.Mocker() as m:
+            m.delete(
+                "https://example.com/api/albums/album-123/assets",
+                json={"success": True},
+                status_code=200,
+            )
+
+            result = remove_assets_from_album(
+                "https://example.com",
+                "test-key",
+                "album-123",
+                ["asset-3"],
+                True,
+            )
+
+            assert result is True
+            captured = capsys.readouterr()
+            assert "Successfully removed 1 asset(s)" in captured.out

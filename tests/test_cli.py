@@ -991,3 +991,64 @@ class TestNoOtherFaces:
         # asset-2 should be skipped due to fetch failure
         assert "After enforcing --no-other-faces: 1 asset(s) remain" in result.output
         assert "Failed to fetch asset asset-2" in result.output
+
+
+class TestRemoveNonMatching:
+    """Test removal of non-matching assets from an existing album."""
+
+    def test_remove_non_matching_assets(self, runner, mock_api):
+        """Test that assets not in the computed final set are removed."""
+        # Mock time buckets
+        mock_api.get(
+            "https://example.com/api/timeline/buckets",
+            json=[{"timeBucket": "2024-01"}],
+            status_code=200,
+        )
+
+        # Mock assets for the time bucket (only asset-1 desired)
+        mock_api.get(
+            "https://example.com/api/timeline/bucket",
+            json={"id": ["asset-1"]},
+            status_code=200,
+        )
+
+        # Mock current album info containing asset-1 and asset-2
+        mock_api.get(
+            "https://example.com/api/albums/album-123",
+            json={"id": "album-123", "assets": [{"id": "asset-1"}, {"id": "asset-2"}]},
+            status_code=200,
+        )
+
+        # Mock album update (adding desired assets)
+        mock_api.put(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        # Mock album delete for removal of asset-2
+        mock_api.delete(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        result = runner.invoke(
+            face_to_album,
+            [
+                "--key",
+                "test-key",
+                "--server",
+                "https://example.com",
+                "--face",
+                "face-1",
+                "--album",
+                "album-123",
+                "--remove-non-matching",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Total unique assets to add: 1" in result.output
+        assert "Total assets to remove: 1" in result.output
+        assert "Removed 1 non-matching asset(s) from album" in result.output
