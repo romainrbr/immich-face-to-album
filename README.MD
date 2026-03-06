@@ -137,26 +137,22 @@ Image: `rbrucker/immich-face-to-album`
 
 Single run:
 ```sh
-docker run --rm rbrucker/immich-face-to-album \
-  immich-face-to-album --key K --server https://s --face P --album A
+docker run --rm rbrucker/immich-face-to-album --key K --server https://s --face P --album A
 ```
 
 Continuous sync (every 10 minutes):
 ```sh
-docker run --rm rbrucker/immich-face-to-album \
-  immich-face-to-album --key K --server https://s --face P --album A \
-    --run-every-seconds 600
+docker run --rm rbrucker/immich-face-to-album --key K --server https://s --face P --album A --run-every-seconds 600
 ```
 
 Multiple faces:
 ```sh
-docker run --rm rbrucker/immich-face-to-album \
-  immich-face-to-album --key K --server https://s --face P1 --face P2 --album A
+docker run --rm rbrucker/immich-face-to-album --key K --server https://s --face P1 --face P2 --album A
 ```
 
 With host cron (every 2 hours):
 ```
-0 */2 * * * docker run --rm rbrucker/immich-face-to-album immich-face-to-album --key K --server https://s --face P --album A
+0 */2 * * * docker run --rm rbrucker/immich-face-to-album --key K --server https://s --face P --album A
 ```
 
 ---
