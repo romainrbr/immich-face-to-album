@@ -104,35 +104,54 @@ def get_asset(server_url, key, asset_id, verbose=False):
 
 
 def get_album_assets(server_url, key, album_id, verbose=False):
-   """
-   Fetch all assets currently present in the album.
-   Returns a set of asset IDs (as strings).
-   """
-   url = f"{server_url}/api/albums/{album_id}"
-   headers = {"x-api-key": key, "Accept": "application/json"}
+    """
+    Fetch all asset IDs currently present in the album.
 
-   if verbose:
-       click.echo(f"Fetching album info from {url}")
+    Immich v3 removed the `assets` property from AlbumResponseDto, so
+    GET /api/albums/{id} no longer returns its assets. Page through the
+    metadata search endpoint (POST /api/search/metadata) instead.
+    Returns a set of asset IDs (as strings).
+    """
+    url = f"{server_url}/api/search/metadata"
+    headers = {
+        "x-api-key": key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
 
-   response = requests.get(url, headers=headers)
+    asset_ids = set()
+    page = 1
+    while True:
+        payload = json.dumps({"albumIds": [album_id], "page": page, "size": 1000})
 
-   if response.status_code != 200:
-       click.echo(
-           click.style(
-               f"Failed to fetch album info. Status code: {response.status_code}, Response text: {response.text}",
-               fg="red",
-           )
-       )
-       return set()
+        if verbose:
+            click.echo(f"Fetching album assets from {url} (page {page})")
 
-   album_data = response.json()
-   asset_objs = album_data.get("assets", []) or []
-   asset_ids = {str(a.get("id")) for a in asset_objs if a.get("id")}
+        response = requests.post(url, headers=headers, data=payload)
 
-   if verbose:
-       click.echo(f"Album currently contains {len(asset_ids)} asset(s)")
+        if response.status_code != 200:
+            click.echo(
+                click.style(
+                    f"Failed to fetch album assets. Status code: {response.status_code}, Response text: {response.text}",
+                    fg="red",
+                )
+            )
+            return set()
 
-   return asset_ids
+        assets = response.json().get("assets", {}) or {}
+        for a in assets.get("items", []):
+            if a.get("id"):
+                asset_ids.add(str(a.get("id")))
+
+        next_page = assets.get("nextPage")
+        if not next_page:
+            break
+        page = int(next_page)
+
+    if verbose:
+        click.echo(f"Album currently contains {len(asset_ids)} asset(s)")
+
+    return asset_ids
 
 
 def remove_assets_from_album(server_url, key, album_id, asset_ids, verbose=False):

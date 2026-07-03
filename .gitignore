@@ -11,3 +11,6 @@ htmlcov/
 coverage.xml
 __pycache__/
 *.pyc
+# uv
+uv.lock
+.venv/

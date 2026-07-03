@@ -411,15 +411,17 @@ class TestAlbumFunctions:
     """Test album-related API functions (list and remove)."""
 
     def test_get_album_assets_success(self):
-        """Test fetching album assets succeeds and returns IDs as strings."""
+        """Test fetching album assets via metadata search returns IDs as strings."""
         with requests_mock.Mocker() as m:
-            album_payload = {
-                "id": "album-123",
-                "assets": [{"id": "asset-1"}, {"id": "asset-3"}],
+            search_payload = {
+                "assets": {
+                    "items": [{"id": "asset-1"}, {"id": "asset-3"}],
+                    "nextPage": None,
+                }
             }
-            m.get(
-                "https://example.com/api/albums/album-123",
-                json=album_payload,
+            m.post(
+                "https://example.com/api/search/metadata",
+                json=search_payload,
                 status_code=200,
             )
 
@@ -430,6 +432,35 @@ class TestAlbumFunctions:
             assert isinstance(result, set)
             assert result == {"asset-1", "asset-3"}
             assert m.last_request.headers["x-api-key"] == "test-key"
+            assert m.last_request.json() == {
+                "albumIds": ["album-123"],
+                "page": 1,
+                "size": 1000,
+            }
+
+    def test_get_album_assets_paginates(self):
+        """Test that pagination follows nextPage until exhausted."""
+        with requests_mock.Mocker() as m:
+            m.post(
+                "https://example.com/api/search/metadata",
+                [
+                    {
+                        "json": {"assets": {"items": [{"id": "asset-1"}], "nextPage": "2"}},
+                        "status_code": 200,
+                    },
+                    {
+                        "json": {"assets": {"items": [{"id": "asset-2"}], "nextPage": None}},
+                        "status_code": 200,
+                    },
+                ],
+            )
+
+            result = get_album_assets(
+                "https://example.com", "test-key", "album-123", False
+            )
+
+            assert result == {"asset-1", "asset-2"}
+            assert m.call_count == 2
 
     def test_remove_assets_from_album_success(self, capsys):
         """Test removal of assets from an album using the DELETE endpoint."""

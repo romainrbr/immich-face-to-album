@@ -1012,10 +1012,15 @@ class TestRemoveNonMatching:
             status_code=200,
         )
 
-        # Mock current album info containing asset-1 and asset-2
-        mock_api.get(
-            "https://example.com/api/albums/album-123",
-            json={"id": "album-123", "assets": [{"id": "asset-1"}, {"id": "asset-2"}]},
+        # Mock current album assets (metadata search) containing asset-1 and asset-2
+        mock_api.post(
+            "https://example.com/api/search/metadata",
+            json={
+                "assets": {
+                    "items": [{"id": "asset-1"}, {"id": "asset-2"}],
+                    "nextPage": None,
+                }
+            },
             status_code=200,
         )
 
