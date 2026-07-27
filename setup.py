@@ -64,7 +64,6 @@ For example, to run the command every hour, you can add the following to your cr
         "Intended Audience :: Developers",
         "Topic :: Software Development :: Build Tools",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
