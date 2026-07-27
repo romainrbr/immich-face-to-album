@@ -321,6 +321,14 @@ def chunker(seq, size):
     is_flag=True,
     help="Remove assets from the album that do not satisfy the face-selection logic.",
 )
+@click.option(
+    "--full-scan",
+    is_flag=True,
+    help=(
+        "Always run a full scan, ignoring any saved incremental state. "
+        "State (config hash + last_run_at) is still saved for auditing."
+    ),
+)
 def face_to_album(
     key,
     server,
@@ -333,6 +341,7 @@ def face_to_album(
     require_all_faces,
     no_other_faces,
     remove_non_matching,
+    full_scan,
 ):
     state_path = Path(state_file)
 
@@ -355,7 +364,7 @@ def face_to_album(
         stored_hash = album_state.get("config_hash")
         stored_last_run = album_state.get("last_run_at")
 
-        if stored_hash == current_hash and stored_last_run:
+        if not full_scan and stored_hash == current_hash and stored_last_run:
             created_after = stored_last_run
             if verbose:
                 click.echo(
@@ -363,8 +372,9 @@ def face_to_album(
                 )
         else:
             created_after = None
+            reason = "--full-scan flag set" if full_scan else "first run or config changed"
             if verbose:
-                click.echo("Full scan mode (first run or config changed)")
+                click.echo(f"Full scan mode ({reason})")
 
         # ---- fetch assets for included faces ----
         if require_all_faces:
