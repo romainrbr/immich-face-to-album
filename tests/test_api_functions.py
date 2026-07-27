@@ -1,173 +1,205 @@
+import json
+from pathlib import Path
+
 import pytest
 import requests_mock
 from click.testing import CliRunner
 from immich_face_to_album.__main__ import (
-    get_time_buckets,
-    get_assets_for_time_bucket,
     add_assets_to_album,
-    get_asset,
+    config_hash,
     get_album_assets,
+    get_assets_for_person,
+    load_state,
     remove_assets_from_album,
+    save_state,
 )
 
 
-class TestGetTimeBuckets:
-    """Test the get_time_buckets function."""
+def _search_matcher(*, person_ids=None, album_id=None):
+    def matcher(request):
+        try:
+            body = request.json()
+        except Exception:
+            return False
+        if person_ids is not None:
+            if sorted(body.get("personIds") or []) != sorted(person_ids):
+                return False
+        if album_id is not None:
+            if body.get("albumIds") != [album_id]:
+                return False
+        return True
+    return matcher
 
-    def test_get_time_buckets_success(self):
-        """Test successful time bucket fetching."""
+
+class TestGetAssetsForPerson:
+    """Test the get_assets_for_person function."""
+
+    def test_single_person_id(self):
         with requests_mock.Mocker() as m:
-            expected_response = [
-                {"timeBucket": "2024-01"},
-                {"timeBucket": "2024-02"},
-            ]
-            m.get(
-                "https://example.com/api/timeline/buckets",
-                json=expected_response,
-                status_code=200,
+            response = {
+                "assets": {
+                    "items": [
+                        {"id": "asset-1", "people": [{"id": "face-1"}]},
+                        {"id": "asset-2", "people": [{"id": "face-1"}]},
+                    ],
+                    "nextPage": None,
+                }
+            }
+            m.post(
+                "https://example.com/api/search/metadata",
+                json=response,
+                additional_matcher=_search_matcher(person_ids=["face-1"]),
             )
 
-            result = get_time_buckets(
-                "https://example.com", "test-key", "face-123", "MONTH", False
+            result = get_assets_for_person(
+                "https://example.com", "test-key", ["face-1"]
             )
 
-            assert result == expected_response
+            assert len(result) == 2
+            assert result[0] == {"id": "asset-1", "people": [{"id": "face-1"}]}
+            assert result[1] == {"id": "asset-2", "people": [{"id": "face-1"}]}
             assert m.call_count == 1
-            assert m.last_request.headers["x-api-key"] == "test-key"
-            assert m.last_request.qs["personid"] == ["face-123"]
-            assert m.last_request.qs["size"] == ["month"]
+            req = m.last_request
+            assert req.headers["x-api-key"] == "test-key"
+            body = req.json()
+            assert body["personIds"] == ["face-1"]
+            assert body["withPeople"] is True
+            assert body["withExif"] is False
+            assert "createdAfter" not in body
 
-    def test_get_time_buckets_different_size(self):
-        """Test time bucket fetching with different size parameter."""
+    def test_multiple_person_ids(self):
         with requests_mock.Mocker() as m:
-            expected_response = [{"timeBucket": "2024-W01"}]
-            m.get(
-                "https://example.com/api/timeline/buckets",
-                json=expected_response,
-                status_code=200,
+            response = {
+                "assets": {
+                    "items": [
+                        {"id": "asset-1", "people": [{"id": "face-1"}, {"id": "face-2"}]},
+                    ],
+                    "nextPage": None,
+                }
+            }
+            m.post(
+                "https://example.com/api/search/metadata",
+                json=response,
+                additional_matcher=_search_matcher(
+                    person_ids=["face-1", "face-2"]
+                ),
             )
 
-            result = get_time_buckets(
-                "https://example.com", "test-key", "face-456", "WEEK", False
+            result = get_assets_for_person(
+                "https://example.com", "test-key", ["face-1", "face-2"]
             )
 
-            assert result == expected_response
-            assert m.last_request.qs["size"] == ["week"]
+            assert len(result) == 1
+            assert result[0]["people"] == [{"id": "face-1"}, {"id": "face-2"}]
 
-    def test_get_time_buckets_failure(self):
-        """Test time bucket fetching with API error."""
+    def test_with_created_after(self):
         with requests_mock.Mocker() as m:
-            m.get(
-                "https://example.com/api/timeline/buckets",
+            response = {"assets": {"items": [], "nextPage": None}}
+            m.post(
+                "https://example.com/api/search/metadata",
+                json=response,
+            )
+
+            get_assets_for_person(
+                "https://example.com",
+                "test-key",
+                ["face-1"],
+                created_after="2024-01-01T00:00:00+00:00",
+            )
+
+            body = m.last_request.json()
+            assert body["createdAfter"] == "2024-01-01T00:00:00+00:00"
+
+    def test_pagination_multiple_pages(self):
+        with requests_mock.Mocker() as m:
+            m.post(
+                "https://example.com/api/search/metadata",
+                [
+                    {
+                        "json": {
+                            "assets": {
+                                "items": [
+                                    {"id": "asset-1", "people": []},
+                                    {"id": "asset-2", "people": []},
+                                ],
+                                "nextPage": "2",
+                            }
+                        },
+                        "status_code": 200,
+                    },
+                    {
+                        "json": {
+                            "assets": {
+                                "items": [
+                                    {"id": "asset-3", "people": []},
+                                ],
+                                "nextPage": None,
+                            }
+                        },
+                        "status_code": 200,
+                    },
+                ],
+                additional_matcher=_search_matcher(person_ids=["face-1"]),
+            )
+
+            result = get_assets_for_person(
+                "https://example.com", "test-key", ["face-1"]
+            )
+
+            assert len(result) == 3
+            assert [a["id"] for a in result] == ["asset-1", "asset-2", "asset-3"]
+            assert m.call_count == 2
+
+    def test_empty_results(self):
+        with requests_mock.Mocker() as m:
+            m.post(
+                "https://example.com/api/search/metadata",
+                json={"assets": {"items": [], "nextPage": None}},
+                additional_matcher=_search_matcher(person_ids=["face-1"]),
+            )
+
+            result = get_assets_for_person(
+                "https://example.com", "test-key", ["face-1"]
+            )
+
+            assert result == []
+
+    def test_api_error(self, capsys):
+        with requests_mock.Mocker() as m:
+            m.post(
+                "https://example.com/api/search/metadata",
                 text="Internal Server Error",
                 status_code=500,
+                additional_matcher=_search_matcher(person_ids=["face-1"]),
             )
 
             with pytest.raises(SystemExit) as exc_info:
-                get_time_buckets(
-                    "https://example.com", "test-key", "face-123", "MONTH", False
+                get_assets_for_person(
+                    "https://example.com", "test-key", ["face-1"]
                 )
 
             assert exc_info.value.code == 1
+            captured = capsys.readouterr()
+            assert "Failed to search assets for person(s)" in captured.out
+            assert "500" in captured.out
 
-    def test_get_time_buckets_verbose(self, capsys):
-        """Test verbose output for time bucket fetching."""
+    def test_verbose(self, capsys):
         with requests_mock.Mocker() as m:
-            expected_response = [{"timeBucket": "2024-01"}]
-            m.get(
-                "https://example.com/api/timeline/buckets",
-                json=expected_response,
-                status_code=200,
+            m.post(
+                "https://example.com/api/search/metadata",
+                json={"assets": {"items": [], "nextPage": None}},
             )
 
-            result = get_time_buckets(
-                "https://example.com", "test-key", "face-123", "MONTH", True
+            get_assets_for_person(
+                "https://example.com",
+                "test-key",
+                ["face-1"],
+                verbose=True,
             )
 
             captured = capsys.readouterr()
-            assert "Fetching time buckets from" in captured.out
-            assert "Time buckets fetched:" in captured.out
-
-
-class TestGetAssetsForTimeBucket:
-    """Test the get_assets_for_time_bucket function."""
-
-    def test_get_assets_success(self):
-        """Test successful asset fetching."""
-        with requests_mock.Mocker() as m:
-            expected_response = {"id": ["asset-1", "asset-2", "asset-3"]}
-            m.get(
-                "https://example.com/api/timeline/bucket",
-                json=expected_response,
-                status_code=200,
-            )
-
-            result = get_assets_for_time_bucket(
-                "https://example.com", "test-key", "face-123", "2024-01", "MONTH", False
-            )
-
-            assert result == expected_response
-            assert m.last_request.headers["x-api-key"] == "test-key"
-            assert m.last_request.qs["personid"] == ["face-123"]
-            assert m.last_request.qs["timebucket"] == ["2024-01"]
-            assert m.last_request.qs["size"] == ["month"]
-            assert m.last_request.qs["isarchived"] == ["false"]
-
-    def test_get_assets_empty(self):
-        """Test fetching when no assets are found."""
-        with requests_mock.Mocker() as m:
-            expected_response = {"id": []}
-            m.get(
-                "https://example.com/api/timeline/bucket",
-                json=expected_response,
-                status_code=200,
-            )
-
-            result = get_assets_for_time_bucket(
-                "https://example.com", "test-key", "face-123", "2024-01", "MONTH", False
-            )
-
-            assert result == expected_response
-            assert result["id"] == []
-
-    def test_get_assets_failure(self):
-        """Test asset fetching with API error."""
-        with requests_mock.Mocker() as m:
-            m.get(
-                "https://example.com/api/timeline/bucket",
-                text="Not Found",
-                status_code=404,
-            )
-
-            with pytest.raises(SystemExit) as exc_info:
-                get_assets_for_time_bucket(
-                    "https://example.com",
-                    "test-key",
-                    "face-123",
-                    "2024-01",
-                    "MONTH",
-                    False,
-                )
-
-            assert exc_info.value.code == 1
-
-    def test_get_assets_verbose(self, capsys):
-        """Test verbose output for asset fetching."""
-        with requests_mock.Mocker() as m:
-            expected_response = {"id": ["asset-1"]}
-            m.get(
-                "https://example.com/api/timeline/bucket",
-                json=expected_response,
-                status_code=200,
-            )
-
-            result = get_assets_for_time_bucket(
-                "https://example.com", "test-key", "face-123", "2024-01", "MONTH", True
-            )
-
-            captured = capsys.readouterr()
-            assert "Fetching assets for time bucket" in captured.out
-            assert "Assets fetched:" in captured.out
+            assert "Fetching assets for person(s)" in captured.out
+            assert "Assets fetched: 0 total for person(s)" in captured.out
 
 
 class TestAddAssetsToAlbum:
@@ -300,113 +332,6 @@ class TestAddAssetsToAlbum:
             assert "Permission denied" in captured.out
 
 
-class TestGetAsset:
-    """Test the get_asset function."""
-
-    def test_get_asset_success(self):
-        """Test successful asset fetching with people information."""
-        with requests_mock.Mocker() as m:
-            full_asset_response = {
-                "id": "asset-123",
-                "people": [
-                    {"id": "face-1", "name": "Person 1"},
-                    {"id": "face-2", "name": "Person 2"},
-                ],
-                "fileCreatedAt": "2024-01-01T00:00:00.000Z",
-                "deviceAssetId": "some-device-id",
-                # ... many other fields that should be trimmed
-            }
-            m.get(
-                "https://example.com/api/assets/asset-123",
-                json=full_asset_response,
-                status_code=200,
-            )
-
-            result = get_asset("https://example.com", "test-key", "asset-123", False)
-
-            assert result is not None
-            assert result["id"] == "asset-123"
-            assert len(result["people"]) == 2
-            assert result["people"][0]["id"] == "face-1"
-            assert result["people"][1]["id"] == "face-2"
-            # Verify only id and people are returned (trimmed response)
-            assert set(result.keys()) == {"id", "people"}
-
-    def test_get_asset_no_people(self):
-        """Test asset fetching when asset has no recognized people."""
-        with requests_mock.Mocker() as m:
-            asset_response = {
-                "id": "asset-456",
-                "people": [],
-                "fileCreatedAt": "2024-01-01T00:00:00.000Z",
-            }
-            m.get(
-                "https://example.com/api/assets/asset-456",
-                json=asset_response,
-                status_code=200,
-            )
-
-            result = get_asset("https://example.com", "test-key", "asset-456", False)
-
-            assert result is not None
-            assert result["id"] == "asset-456"
-            assert result["people"] == []
-
-    def test_get_asset_missing_people_field(self):
-        """Test asset fetching when people field is missing."""
-        with requests_mock.Mocker() as m:
-            asset_response = {
-                "id": "asset-789",
-                "fileCreatedAt": "2024-01-01T00:00:00.000Z",
-            }
-            m.get(
-                "https://example.com/api/assets/asset-789",
-                json=asset_response,
-                status_code=200,
-            )
-
-            result = get_asset("https://example.com", "test-key", "asset-789", False)
-
-            assert result is not None
-            assert result["id"] == "asset-789"
-            assert result["people"] == []
-
-    def test_get_asset_failure(self, capsys):
-        """Test asset fetching with API error."""
-        with requests_mock.Mocker() as m:
-            m.get(
-                "https://example.com/api/assets/asset-404",
-                text="Not Found",
-                status_code=404,
-            )
-
-            result = get_asset("https://example.com", "test-key", "asset-404", False)
-
-            assert result is None
-            captured = capsys.readouterr()
-            assert "Failed to fetch asset asset-404" in captured.out
-
-    def test_get_asset_verbose(self, capsys):
-        """Test verbose output for asset fetching."""
-        with requests_mock.Mocker() as m:
-            asset_response = {
-                "id": "asset-999",
-                "people": [{"id": "face-1"}],
-            }
-            m.get(
-                "https://example.com/api/assets/asset-999",
-                json=asset_response,
-                status_code=200,
-            )
-
-            result = get_asset("https://example.com", "test-key", "asset-999", True)
-
-            assert result is not None
-            captured = capsys.readouterr()
-            assert "Fetching asset asset-999" in captured.out
-            assert "Fetched asset asset-999, returning trimmed keys" in captured.out
-
-
 class TestAlbumFunctions:
     """Test album-related API functions (list and remove)."""
 
@@ -422,7 +347,7 @@ class TestAlbumFunctions:
             m.post(
                 "https://example.com/api/search/metadata",
                 json=search_payload,
-                status_code=200,
+                additional_matcher=_search_matcher(album_id="album-123"),
             )
 
             result = get_album_assets(
@@ -445,14 +370,25 @@ class TestAlbumFunctions:
                 "https://example.com/api/search/metadata",
                 [
                     {
-                        "json": {"assets": {"items": [{"id": "asset-1"}], "nextPage": "2"}},
+                        "json": {
+                            "assets": {
+                                "items": [{"id": "asset-1"}],
+                                "nextPage": "2",
+                            }
+                        },
                         "status_code": 200,
                     },
                     {
-                        "json": {"assets": {"items": [{"id": "asset-2"}], "nextPage": None}},
+                        "json": {
+                            "assets": {
+                                "items": [{"id": "asset-2"}],
+                                "nextPage": None,
+                            }
+                        },
                         "status_code": 200,
                     },
                 ],
+                additional_matcher=_search_matcher(album_id="album-123"),
             )
 
             result = get_album_assets(
@@ -482,3 +418,60 @@ class TestAlbumFunctions:
             assert result is True
             captured = capsys.readouterr()
             assert "Successfully removed 1 asset(s)" in captured.out
+
+
+class TestStateManagement:
+    """Test state file management functions."""
+
+    def test_load_state_missing_file(self, tmp_path):
+        state_path = tmp_path / "state.json"
+        result = load_state(state_path)
+        assert result == {}
+
+    def test_load_state_corrupted_json(self, tmp_path):
+        state_path = tmp_path / "state.json"
+        state_path.write_text("not valid json{{{")
+        result = load_state(state_path)
+        assert result == {}
+
+    def test_save_and_load_state(self, tmp_path):
+        state_path = tmp_path / "state.json"
+        data = {
+            "album-1": {
+                "config_hash": "abc123",
+                "last_run_at": "2024-01-01T00:00:00+00:00",
+            }
+        }
+        save_state(state_path, data)
+        loaded = load_state(state_path)
+        assert loaded == data
+
+    def test_save_state_creates_directory(self, tmp_path):
+        state_path = tmp_path / "subdir" / "nested" / "state.json"
+        data = {"album-1": {"config_hash": "xyz789", "last_run_at": "2024-06-01T00:00:00Z"}}
+        save_state(state_path, data)
+        assert state_path.exists()
+        loaded = load_state(state_path)
+        assert loaded == data
+
+    def test_config_hash_same_input(self):
+        faces = {"face-1", "face-2"}
+        skip = {"skip-1"}
+        h1 = config_hash(faces, skip, True, True)
+        h2 = config_hash(faces, skip, True, True)
+        assert h1 == h2
+
+    def test_config_hash_different_faces(self):
+        h1 = config_hash({"face-1"}, set(), False, False)
+        h2 = config_hash({"face-2"}, set(), False, False)
+        assert h1 != h2
+
+    def test_config_hash_different_flags(self):
+        h1 = config_hash({"face-1"}, set(), True, False)
+        h2 = config_hash({"face-1"}, set(), False, False)
+        assert h1 != h2
+
+    def test_config_hash_order_independent(self):
+        h1 = config_hash({"face-1", "face-2"}, {"skip-a", "skip-b"}, False, False)
+        h2 = config_hash({"face-2", "face-1"}, {"skip-b", "skip-a"}, False, False)
+        assert h1 == h2
