@@ -22,7 +22,7 @@ def _search_matcher(*, person_ids=None, album_id=None):
         except Exception:
             return False
         if person_ids is not None:
-            if body.get("personIds") != person_ids:
+            if sorted(body.get("personIds") or []) != sorted(person_ids):
                 return False
         if album_id is not None:
             if body.get("albumIds") != [album_id]:
@@ -173,11 +173,12 @@ class TestGetAssetsForPerson:
                 additional_matcher=_search_matcher(person_ids=["face-1"]),
             )
 
-            result = get_assets_for_person(
-                "https://example.com", "test-key", ["face-1"]
-            )
+            with pytest.raises(SystemExit) as exc_info:
+                get_assets_for_person(
+                    "https://example.com", "test-key", ["face-1"]
+                )
 
-            assert result == []
+            assert exc_info.value.code == 1
             captured = capsys.readouterr()
             assert "Failed to search assets for person(s)" in captured.out
             assert "500" in captured.out

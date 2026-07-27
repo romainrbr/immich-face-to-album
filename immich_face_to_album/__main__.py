@@ -22,7 +22,8 @@ def get_assets_for_person(
 
         [{"id": str, "people": [{"id": str}, ...]}, ...]
 
-    Returns an empty list on HTTP errors (does *not* call ``exit(1)``).
+    Calls ``exit(1)`` on HTTP errors (an empty result set would be
+    dangerous with ``--remove-non-matching``).
     """
     url = f"{server_url}/api/search/metadata"
     headers = {
@@ -63,7 +64,7 @@ def get_assets_for_person(
                     fg="red",
                 )
             )
-            return []  # do not exit — caller decides next action
+            exit(1)
 
         data = response.json()
         assets = data.get("assets", {}) or {}
@@ -364,17 +365,21 @@ def face_to_album(
         stored_hash = album_state.get("config_hash")
         stored_last_run = album_state.get("last_run_at")
 
-        if not full_scan and stored_hash == current_hash and stored_last_run:
+        if not full_scan and not remove_non_matching and stored_hash == current_hash and stored_last_run:
             created_after = stored_last_run
-            if verbose:
-                click.echo(
-                    f"Incremental mode: fetching assets created after {created_after}"
-                )
+            click.echo(
+                f"Incremental mode: fetching assets created after {created_after}"
+            )
         else:
             created_after = None
-            reason = "--full-scan flag set" if full_scan else "first run or config changed"
-            if verbose:
-                click.echo(f"Full scan mode ({reason})")
+            reasons = []
+            if full_scan:
+                reasons.append("--full-scan flag set")
+            if remove_non_matching:
+                reasons.append("--remove-non-matching requires full comparison")
+            if not reasons:
+                reasons.append("first run or config changed")
+            click.echo(f"Full scan mode ({', '.join(reasons)})")
 
         # ---- fetch assets for included faces ----
         if require_all_faces:
@@ -382,7 +387,7 @@ def face_to_album(
             assets = get_assets_for_person(
                 server,
                 key,
-                list(included_face_ids),
+                sorted(included_face_ids),
                 created_after=created_after,
                 verbose=verbose,
             )

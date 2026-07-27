@@ -25,7 +25,7 @@ def _search_matcher(*, person_ids=None, album_id=None, expect_created_after=None
             body = request.json()
         except Exception:
             return False
-        if person_ids is not None and body.get("personIds") != person_ids:
+        if person_ids is not None and sorted(body.get("personIds") or []) != sorted(person_ids):
             return False
         if album_id is not None and body.get("albumIds") != [album_id]:
             return False
@@ -457,8 +457,7 @@ class TestErrorHandling:
             ],
         )
 
-        assert result.exit_code == 0
-        assert "Total unique assets to add: 0" in result.output
+        assert result.exit_code == 1
 
     def test_album_update_failure(self, runner, mock_api, tmp_path):
         mock_api.post(
@@ -726,6 +725,99 @@ class TestRemoveNonMatching:
         assert "Total unique assets to add: 1" in result.output
         assert "Total assets to remove: 1" in result.output
         assert "Removed 1 non-matching asset(s) from album" in result.output
+
+    def test_remove_non_matching_forces_full_scan(self, runner, mock_api, tmp_path):
+        """--remove-non-matching must do a full scan even when state exists.
+        An incremental run would only see newly-uploaded assets and could
+        accidentally delete previously-synced assets from the album."""
+        state_file = tmp_path / "state.json"
+
+        # Pre-populate state to simulate a previous run
+        state_file.write_text(json.dumps({
+            "album-123": {
+                "config_hash": "test-hash",
+                "last_run_at": "2024-01-01T00:00:00+00:00",
+            }
+        }))
+
+        # Mock the config_hash() function to return a matching hash
+        # so incremental mode would normally be chosen.
+        import hashlib
+        mock_hash = hashlib.sha256(json.dumps({
+            "faces": ["face-1"],
+            "skip_faces": [],
+            "require_all_faces": False,
+            "no_other_faces": False,
+        }, sort_keys=True).encode()).hexdigest()[:16]
+        state_file.write_text(json.dumps({
+            "album-123": {
+                "config_hash": mock_hash,
+                "last_run_at": "2024-01-01T00:00:00+00:00",
+            }
+        }))
+
+        # The search call should NOT include createdAfter (full scan forced)
+        mock_api.post(
+            "https://example.com/api/search/metadata",
+            json={
+                "assets": {
+                    "items": [
+                        {"id": "asset-1", "people": [{"id": "face-1"}]},
+                    ],
+                    "nextPage": None,
+                }
+            },
+            additional_matcher=_search_matcher(
+                person_ids=["face-1"], expect_created_after=False
+            ),
+        )
+
+        mock_api.put(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        # Album currently has asset-1 and asset-2
+        mock_api.post(
+            "https://example.com/api/search/metadata",
+            json={
+                "assets": {
+                    "items": [{"id": "asset-1"}, {"id": "asset-2"}],
+                    "nextPage": None,
+                }
+            },
+            additional_matcher=_search_matcher(album_id="album-123"),
+        )
+
+        # asset-2 should be removed (not matching face-1)
+        mock_api.delete(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        result = runner.invoke(
+            face_to_album,
+            [
+                "--key", "test-key",
+                "--server", "https://example.com",
+                "--face", "face-1",
+                "--album", "album-123",
+                "--remove-non-matching",
+                "--state-file", str(state_file),
+            ],
+        )
+
+        assert result.exit_code == 0
+        # Full scan found asset-1
+        assert "Total unique assets to add: 1" in result.output
+        # Album had asset-1 and asset-2; asset-2 not matching → remove
+        assert "Total assets to remove: 1" in result.output
+        assert "Removed 1 non-matching asset(s) from album" in result.output
+        # Verify the search was a full scan (not incremental with createdAfter)
+        assert "Full scan mode" in result.output
+        assert "remove-non-matching requires full comparison" in result.output
 
 
 class TestIncrementalSync:
