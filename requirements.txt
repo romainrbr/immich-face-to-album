@@ -3,5 +3,5 @@ charset-normalizer==3.3.2
 click==8.1.7
 idna==3.15
 requests==2.33.0
-setuptools==83.0.0
+setuptools>=61.0.0
 urllib3==2.7.0
