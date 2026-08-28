@@ -57,6 +57,7 @@ The album must already exist (the tool only adds assets; it does not create albu
 | `--face` | Yes | Yes | One or more person (face) IDs to include |
 | `--require-all-faces` | No | No | If set, only assets that include all specified faces will be added to the album. Otherwise, all assets where any face appears are included. |
 | `--no-other-faces` | No | No | Only include assets whose detected faces exactly match the specified faces (no additional recognized faces). |
+| `--asset-type` | No | No | Only include assets of one type (`IMAGE`, `VIDEO`, `AUDIO`, `OTHER`); default is all types. |
 | `--skip-face` | No | Yes | Person (face) IDs to exclude from the selection. Use `--remove-non-matching` to retroactively remove matching assets already present in the album. |
 | `--album` | Yes | No | Target album ID |
 | `--run-every-seconds` | No | No | Loop every N seconds (0 = run once) |
@@ -79,6 +80,12 @@ Exclude a face (e.g. gather p1 + p2, but remove any asset that also belongs to p
 ```sh
 immich-face-to-album --key k --server https://s \
   --face p1 --face p2 --skip-face p3 --album a123
+```
+
+Photos only (e.g. portrait photos of a single person, excluding videos):
+```sh
+immich-face-to-album --key k --server https://s \
+  --face X --no-other-faces --asset-type IMAGE --album a123
 ```
 
 ---
@@ -115,7 +122,7 @@ On the first run, the tool performs a full scan of all assets matching the confi
 
 On subsequent runs, if the configuration hasn't changed, only assets uploaded to Immich after the last run are fetched (via the `createdAfter` query parameter). This reduces API load dramatically -- from fetching thousands of assets to near-zero on idle runs.
 
-If the face list or flags (`--require-all-faces`, `--no-other-faces`, `--skip-face`) change, the config hash no longer matches and a full re-scan is triggered automatically.
+If the face list or flags (`--require-all-faces`, `--no-other-faces`, `--skip-face`, `--asset-type`) change, the config hash no longer matches and a full re-scan is triggered automatically.
 
 Use `--full-scan` to force a full scan regardless of saved state (e.g. after a manual Immich re-index or face re-detection).
 

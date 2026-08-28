@@ -15,7 +15,7 @@ from immich_face_to_album.__main__ import (
 )
 
 
-def _search_matcher(*, person_ids=None, album_id=None):
+def _search_matcher(*, person_ids=None, album_id=None, expect_type=None):
     def matcher(request):
         try:
             body = request.json()
@@ -27,6 +27,8 @@ def _search_matcher(*, person_ids=None, album_id=None):
         if album_id is not None:
             if body.get("albumIds") != [album_id]:
                 return False
+        if expect_type is not None and body.get("type") != expect_type:
+            return False
         return True
     return matcher
 
@@ -109,6 +111,45 @@ class TestGetAssetsForPerson:
 
             body = m.last_request.json()
             assert body["createdAfter"] == "2024-01-01T00:00:00+00:00"
+
+    def test_with_asset_type(self):
+        with requests_mock.Mocker() as m:
+            response = {
+                "assets": {
+                    "items": [
+                        {"id": "asset-1", "people": [{"id": "face-1"}]},
+                    ],
+                    "nextPage": None,
+                }
+            }
+            m.post(
+                "https://example.com/api/search/metadata",
+                json=response,
+                additional_matcher=_search_matcher(
+                    person_ids=["face-1"], expect_type="IMAGE"
+                ),
+            )
+
+            result = get_assets_for_person(
+                "https://example.com", "test-key", ["face-1"], asset_type="IMAGE"
+            )
+
+            assert len(result) == 1
+            body = m.last_request.json()
+            assert body["type"] == "IMAGE"
+
+    def test_without_asset_type(self):
+        with requests_mock.Mocker() as m:
+            m.post(
+                "https://example.com/api/search/metadata",
+                json={"assets": {"items": [], "nextPage": None}},
+                additional_matcher=_search_matcher(person_ids=["face-1"]),
+            )
+
+            get_assets_for_person("https://example.com", "test-key", ["face-1"])
+
+            body = m.last_request.json()
+            assert "type" not in body
 
     def test_pagination_multiple_pages(self):
         with requests_mock.Mocker() as m:
@@ -457,21 +498,26 @@ class TestStateManagement:
     def test_config_hash_same_input(self):
         faces = {"face-1", "face-2"}
         skip = {"skip-1"}
-        h1 = config_hash(faces, skip, True, True)
-        h2 = config_hash(faces, skip, True, True)
+        h1 = config_hash(faces, skip, True, True, None)
+        h2 = config_hash(faces, skip, True, True, None)
         assert h1 == h2
 
     def test_config_hash_different_faces(self):
-        h1 = config_hash({"face-1"}, set(), False, False)
-        h2 = config_hash({"face-2"}, set(), False, False)
+        h1 = config_hash({"face-1"}, set(), False, False, None)
+        h2 = config_hash({"face-2"}, set(), False, False, None)
         assert h1 != h2
 
     def test_config_hash_different_flags(self):
-        h1 = config_hash({"face-1"}, set(), True, False)
-        h2 = config_hash({"face-1"}, set(), False, False)
+        h1 = config_hash({"face-1"}, set(), True, False, None)
+        h2 = config_hash({"face-1"}, set(), False, False, None)
         assert h1 != h2
 
     def test_config_hash_order_independent(self):
-        h1 = config_hash({"face-1", "face-2"}, {"skip-a", "skip-b"}, False, False)
-        h2 = config_hash({"face-2", "face-1"}, {"skip-b", "skip-a"}, False, False)
+        h1 = config_hash({"face-1", "face-2"}, {"skip-a", "skip-b"}, False, False, None)
+        h2 = config_hash({"face-2", "face-1"}, {"skip-b", "skip-a"}, False, False, None)
         assert h1 == h2
+
+    def test_config_hash_different_asset_type(self):
+        h1 = config_hash({"face-1"}, set(), False, False, None)
+        h2 = config_hash({"face-1"}, set(), False, False, "IMAGE")
+        assert h1 != h2

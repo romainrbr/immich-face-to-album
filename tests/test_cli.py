@@ -19,7 +19,7 @@ def mock_api():
         yield m
 
 
-def _search_matcher(*, person_ids=None, album_id=None, expect_created_after=None):
+def _search_matcher(*, person_ids=None, album_id=None, expect_created_after=None, expect_type=None):
     def matcher(request):
         try:
             body = request.json()
@@ -32,6 +32,8 @@ def _search_matcher(*, person_ids=None, album_id=None, expect_created_after=None
         if expect_created_after is True and "createdAfter" not in body:
             return False
         if expect_created_after is False and "createdAfter" in body:
+            return False
+        if expect_type is True and body.get("type") != "IMAGE":
             return False
         return True
     return matcher
@@ -669,6 +671,231 @@ class TestNoOtherFaces:
         assert "Total unique assets to add: 1" in result.output
 
 
+class TestAssetType:
+    """Test the --asset-type filter."""
+
+    def test_asset_type_passes_payload(self, runner, mock_api, tmp_path):
+        mock_api.post(
+            "https://example.com/api/search/metadata",
+            json={
+                "assets": {
+                    "items": [
+                        {"id": "asset-1", "people": [{"id": "face-1"}]},
+                        {"id": "asset-2", "people": [{"id": "face-1"}]},
+                    ],
+                    "nextPage": None,
+                }
+            },
+            additional_matcher=_search_matcher(
+                person_ids=["face-1"], expect_type=True
+            ),
+        )
+
+        mock_api.put(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        result = runner.invoke(
+            face_to_album,
+            [
+                "--key", "test-key",
+                "--server", "https://example.com",
+                "--face", "face-1",
+                "--album", "album-123",
+                "--asset-type", "IMAGE",
+                "--state-file", str(tmp_path / "state.json"),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Total unique assets to add: 2" in result.output
+        req = mock_api.request_history[0]
+        assert req.json()["type"] == "IMAGE"
+
+    def test_asset_type_applied_to_all_face_searches(self, runner, mock_api, tmp_path):
+        mock_api.post(
+            "https://example.com/api/search/metadata",
+            json={
+                "assets": {
+                    "items": [
+                        {"id": "asset-1", "people": [{"id": "face-1"}]},
+                        {"id": "asset-2", "people": [{"id": "face-1"}]},
+                    ],
+                    "nextPage": None,
+                }
+            },
+            additional_matcher=_search_matcher(
+                person_ids=["face-1"], expect_type=True
+            ),
+        )
+        mock_api.post(
+            "https://example.com/api/search/metadata",
+            json={
+                "assets": {
+                    "items": [
+                        {"id": "asset-2", "people": [{"id": "face-2"}]},
+                    ],
+                    "nextPage": None,
+                }
+            },
+            additional_matcher=_search_matcher(
+                person_ids=["face-2"], expect_type=True
+            ),
+        )
+
+        mock_api.put(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        result = runner.invoke(
+            face_to_album,
+            [
+                "--key", "test-key",
+                "--server", "https://example.com",
+                "--face", "face-1",
+                "--face", "face-2",
+                "--album", "album-123",
+                "--asset-type", "IMAGE",
+                "--state-file", str(tmp_path / "state.json"),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Total unique assets to add: 2" in result.output
+        for req in mock_api.request_history:
+            if "personIds" in req.json():
+                assert req.json()["type"] == "IMAGE"
+
+    def test_asset_type_change_forces_full_scan(self, runner, mock_api, tmp_path):
+        """Changing --asset-type must invalidate the incremental state."""
+        state_file = tmp_path / "state.json"
+
+        h = config_hash({"face-1"}, frozenset(), False, False, None)
+        save_state(state_file, {
+            "album-123": {
+                "config_hash": h,
+                "last_run_at": "2024-01-01T00:00:00+00:00",
+            }
+        })
+
+        mock_api.post(
+            "https://example.com/api/search/metadata",
+            json={
+                "assets": {
+                    "items": [
+                        {"id": "asset-1", "people": [{"id": "face-1"}]},
+                    ],
+                    "nextPage": None,
+                }
+            },
+            additional_matcher=_search_matcher(
+                person_ids=["face-1"],
+                expect_created_after=False,
+                expect_type=True,
+            ),
+        )
+
+        mock_api.put(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        result = runner.invoke(
+            face_to_album,
+            [
+                "--key", "test-key",
+                "--server", "https://example.com",
+                "--face", "face-1",
+                "--album", "album-123",
+                "--asset-type", "IMAGE",
+                "--state-file", str(state_file),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Full scan mode" in result.output
+        assert "Total unique assets to add: 1" in result.output
+
+    def test_asset_type_with_remove_non_matching(self, runner, mock_api, tmp_path):
+        """Videos in the album become non-matching when restricting to IMAGE."""
+        mock_api.post(
+            "https://example.com/api/search/metadata",
+            json={
+                "assets": {
+                    "items": [
+                        {"id": "asset-1", "people": [{"id": "face-1"}]},
+                    ],
+                    "nextPage": None,
+                }
+            },
+            additional_matcher=_search_matcher(
+                person_ids=["face-1"], expect_type=True
+            ),
+        )
+
+        mock_api.put(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        mock_api.post(
+            "https://example.com/api/search/metadata",
+            json={
+                "assets": {
+                    "items": [{"id": "asset-1"}, {"id": "asset-2"}],
+                    "nextPage": None,
+                }
+            },
+            additional_matcher=_search_matcher(album_id="album-123"),
+        )
+
+        mock_api.delete(
+            "https://example.com/api/albums/album-123/assets",
+            json={"success": True},
+            status_code=200,
+        )
+
+        result = runner.invoke(
+            face_to_album,
+            [
+                "--key", "test-key",
+                "--server", "https://example.com",
+                "--face", "face-1",
+                "--album", "album-123",
+                "--asset-type", "IMAGE",
+                "--remove-non-matching",
+                "--state-file", str(tmp_path / "state.json"),
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Total unique assets to add: 1" in result.output
+        assert "Total assets to remove: 1" in result.output
+        assert "Removed 1 non-matching asset(s) from album" in result.output
+
+    def test_asset_type_invalid_value(self, runner, tmp_path):
+        result = runner.invoke(
+            face_to_album,
+            [
+                "--key", "test-key",
+                "--server", "https://example.com",
+                "--face", "face-1",
+                "--album", "album-123",
+                "--asset-type", "BURP",
+                "--state-file", str(tmp_path / "state.json"),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "Invalid value" in result.output
+
+
 class TestRemoveNonMatching:
     """Test removal of non-matching assets from an existing album."""
 
@@ -748,6 +975,7 @@ class TestRemoveNonMatching:
             "skip_faces": [],
             "require_all_faces": False,
             "no_other_faces": False,
+            "asset_type": None,
         }, sort_keys=True).encode()).hexdigest()[:16]
         state_file.write_text(json.dumps({
             "album-123": {
@@ -864,7 +1092,7 @@ class TestIncrementalSync:
     def test_second_run_incremental(self, runner, mock_api, tmp_path):
         state_file = tmp_path / "state.json"
 
-        h = config_hash({"face-1"}, frozenset(), False, False)
+        h = config_hash({"face-1"}, frozenset(), False, False, None)
         save_state(state_file, {
             "album-123": {
                 "config_hash": h,

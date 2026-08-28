@@ -10,7 +10,7 @@ import requests
 
 
 def get_assets_for_person(
-    server_url, key, person_ids, *, created_after=None, verbose=False
+    server_url, key, person_ids, *, created_after=None, asset_type=None, verbose=False
 ):
     """
     Fetch all assets for given person IDs via the metadata search endpoint.
@@ -44,6 +44,8 @@ def get_assets_for_person(
         }
         if created_after is not None:
             payload["createdAfter"] = created_after
+        if asset_type is not None:
+            payload["type"] = asset_type
 
         if verbose:
             click.echo(
@@ -86,7 +88,7 @@ def get_assets_for_person(
 
 
 def config_hash(
-    included_face_ids, skip_face_ids, require_all_faces, no_other_faces
+    included_face_ids, skip_face_ids, require_all_faces, no_other_faces, asset_type
 ):
     """
     Stable hash of the effective configuration.
@@ -99,6 +101,7 @@ def config_hash(
             "skip_faces": sorted(skip_face_ids),
             "require_all_faces": require_all_faces,
             "no_other_faces": no_other_faces,
+            "asset_type": asset_type,
         },
         sort_keys=True,
     )
@@ -318,6 +321,11 @@ def chunker(seq, size):
     ),
 )
 @click.option(
+    "--asset-type",
+    type=click.Choice(["IMAGE", "VIDEO", "AUDIO", "OTHER"]),
+    help="Only include assets of this type (default: all types).",
+)
+@click.option(
     "--remove-non-matching",
     is_flag=True,
     help="Remove assets from the album that do not satisfy the face-selection logic.",
@@ -341,6 +349,7 @@ def face_to_album(
     run_every_seconds,
     require_all_faces,
     no_other_faces,
+    asset_type,
     remove_non_matching,
     full_scan,
 ):
@@ -355,10 +364,12 @@ def face_to_album(
                     "--no-other-faces is enabled; assets will be restricted "
                     "to exactly these faces."
                 )
+            if asset_type:
+                click.echo(f"Asset type filter enabled: {asset_type}")
 
         # ---- incremental state ----
         current_hash = config_hash(
-            included_face_ids, skip_face, require_all_faces, no_other_faces
+            included_face_ids, skip_face, require_all_faces, no_other_faces, asset_type
         )
         state = load_state(state_path)
         album_state = state.get(album, {})
@@ -389,6 +400,7 @@ def face_to_album(
                 key,
                 sorted(included_face_ids),
                 created_after=created_after,
+                asset_type=asset_type,
                 verbose=verbose,
             )
             asset_people = {}
@@ -417,6 +429,7 @@ def face_to_album(
                     key,
                     [str(face_id)],
                     created_after=created_after,
+                    asset_type=asset_type,
                     verbose=verbose,
                 )
                 face_set = set()
@@ -500,6 +513,7 @@ def face_to_album(
                     key,
                     [str(s_face)],
                     created_after=created_after,
+                    asset_type=asset_type,
                     verbose=verbose,
                 )
                 skip_asset_ids.update({str(a["id"]) for a in assets})
